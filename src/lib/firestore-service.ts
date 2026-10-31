@@ -248,20 +248,67 @@ export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
   }
 }
 
-// --- 4. CUSTOM MODEL REGISTRY (Firestore Document: settings/custom_models) ---
+export const INITIAL_AI_PROVIDERS: AIProviderConfig[] = [
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    protocol: 'gemini-v1',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    defaultModel: 'gemini-2.0-flash',
+    enabled: true,
+    isCustom: false,
+  },
+  {
+    id: 'groq',
+    name: 'Groq Cloud',
+    protocol: 'openai-compatible',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    enabled: true,
+    isCustom: false,
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    protocol: 'openai-compatible',
+    baseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+    enabled: true,
+    isCustom: false,
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    protocol: 'openai-compatible',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    defaultModel: 'anthropic/claude-3.5-sonnet',
+    enabled: true,
+    isCustom: false,
+  },
+];
+
+// --- 4. DYNAMIC MODEL REGISTRY (Firestore Document: settings/custom_models) ---
 export async function loadCustomModels(): Promise<AIProviderConfig[]> {
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDoc(doc(db, 'settings', 'custom_models'));
       if (snap.exists()) {
         const data = snap.data();
-        return data?.models || [];
+        if (Array.isArray(data?.models) && data.models.length > 0) {
+          return data.models;
+        }
       }
+      // Initialize with default configurable models
+      await setDoc(doc(db, 'settings', 'custom_models'), {
+        models: INITIAL_AI_PROVIDERS,
+        updatedAt: new Date().toISOString(),
+      });
+      return INITIAL_AI_PROVIDERS;
     } catch (e) {
-      console.error('Failed to load custom models from Firestore:', e);
+      console.error('Failed to load models from Firestore:', e);
     }
   }
-  return [];
+  return INITIAL_AI_PROVIDERS;
 }
 
 export async function saveCustomModels(models: AIProviderConfig[]): Promise<void> {

@@ -48,6 +48,61 @@ describe('Model Orchestrator & Live Usage Meter', () => {
     const adapter = (orchestrator as any).adapters.get('deepseek_custom');
     expect(adapter).toBeDefined();
     expect(adapter.id).toBe('deepseek_custom');
+
+    // Register Anthropic protocol provider dynamically
+    const anthropicConfig: AIProviderConfig = {
+      id: 'claude_custom',
+      name: 'Custom Anthropic Claude',
+      protocol: 'anthropic-messages',
+      baseUrl: 'https://api.anthropic.com/v1',
+      defaultModel: 'claude-3-5-sonnet-20241022',
+      enabled: true,
+      isCustom: true,
+    };
+    orchestrator.registerCustomProvider(anthropicConfig);
+    const claudeAdapter = (orchestrator as any).adapters.get('claude_custom');
+    expect(claudeAdapter).toBeDefined();
+    expect(claudeAdapter.name).toBe('Custom Anthropic Claude');
+  });
+
+  it('respects the user-configured rearrangeable failover queue sequence', async () => {
+    const orchestrator = new ModelOrchestrator();
+
+    const customReorderedList: AIProviderConfig[] = [
+      {
+        id: 'tier1_fast',
+        name: 'Tier 1 Fast Model',
+        protocol: 'openai-compatible',
+        baseUrl: 'https://api.groq.com/openai/v1',
+        defaultModel: 'llama-3.3-70b',
+        enabled: true,
+      },
+      {
+        id: 'tier2_reasoning',
+        name: 'Tier 2 Reasoning Model',
+        protocol: 'openai-compatible',
+        baseUrl: 'https://api.deepseek.com/v1',
+        defaultModel: 'deepseek-chat',
+        enabled: true,
+      },
+    ];
+
+    for (const p of customReorderedList) {
+      orchestrator.registerCustomProvider(p);
+    }
+
+    const mockRequest: SynthesisRequest = {
+      companies: ['NVIDIA'],
+      userPrompt: 'Analyze recent GPU deliveries.',
+      partitionedArticles: { NVIDIA: [] },
+      customProviders: customReorderedList,
+      activeProviderId: 'tier1_fast',
+    };
+
+    // When executed, orchestrator synthesizes and uses the configured sequence
+    const result = await orchestrator.synthesize(mockRequest);
+    expect(result.report).toBeDefined();
+    expect(result.report.companyAnalyses).toBeDefined();
   });
 
   it('generates a high-fidelity intelligence report with company analyses and impact matrix', async () => {

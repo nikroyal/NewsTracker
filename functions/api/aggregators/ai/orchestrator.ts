@@ -14,6 +14,7 @@ import { CanonicalArticle } from '@/types/news';
 import { GeminiAdapter } from './adapters/gemini';
 import { OpenRouterAdapter } from './adapters/openrouter';
 import { GenericOpenAICompatibleAdapter } from './adapters/generic-openai';
+import { AnthropicMessagesAdapter } from './adapters/anthropic';
 
 export class ModelOrchestrator {
   private adapters: Map<string, IAIProviderAdapter> = new Map();
@@ -27,28 +28,20 @@ export class ModelOrchestrator {
       enabled: true,
     },
     {
-      id: 'openai',
-      name: 'OpenAI',
-      protocol: 'openai-compatible',
-      baseUrl: 'https://api.openai.com/v1',
-      defaultModel: 'gpt-4o-mini',
-      enabled: true,
-      headerQuotaMapping: {
-        remainingTokens: 'x-ratelimit-remaining-tokens',
-        remainingRequests: 'x-ratelimit-remaining-requests',
-      },
-    },
-    {
       id: 'groq',
       name: 'Groq Cloud',
       protocol: 'openai-compatible',
       baseUrl: 'https://api.groq.com/openai/v1',
       defaultModel: 'llama-3.3-70b-versatile',
       enabled: true,
-      headerQuotaMapping: {
-        remainingTokens: 'x-ratelimit-remaining-tokens',
-        remainingRequests: 'x-ratelimit-remaining-requests',
-      },
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      protocol: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      defaultModel: 'gpt-4o-mini',
+      enabled: true,
     },
     {
       id: 'openrouter',
@@ -65,19 +58,24 @@ export class ModelOrchestrator {
     this.adapters.set('openrouter', new OpenRouterAdapter());
     this.adapters.set('openai', new GenericOpenAICompatibleAdapter('openai', 'OpenAI'));
     this.adapters.set('groq', new GenericOpenAICompatibleAdapter('groq', 'Groq'));
+    this.adapters.set('anthropic', new AnthropicMessagesAdapter('anthropic', 'Anthropic Claude'));
   }
 
   /**
    * Registers ANY new custom AI provider dynamically
    */
   registerCustomProvider(config: AIProviderConfig): void {
-    if (config.protocol === 'openai-compatible' || !this.adapters.has(config.id)) {
+    if (config.protocol === 'anthropic-messages') {
+      this.adapters.set(config.id, new AnthropicMessagesAdapter(config.id, config.name));
+    } else if (config.protocol === 'gemini-v1') {
+      this.adapters.set(config.id, new GeminiAdapter());
+    } else {
       this.adapters.set(config.id, new GenericOpenAICompatibleAdapter(config.id, config.name));
     }
   }
 
   /**
-   * Synthesizes company intelligence with automatic multi-model failover
+   * Synthesizes company intelligence with automatic multi-model failover strictly in user-configured order
    */
   async synthesize(request: SynthesisRequest): Promise<{ report: SynthesisReport; telemetry: ProviderQuotaTelemetry }> {
     // Register any custom providers passed in the request
@@ -87,23 +85,25 @@ export class ModelOrchestrator {
       }
     }
 
-    // Determine execution queue
-    const allProviders: AIProviderConfig[] = [
-      ...(request.customProviders || []),
-      ...this.defaultProviders,
-    ];
+    // Determine execution queue:
+    // If user provided a custom / configured provider list, strictly use that list in their exact sequence!
+    const allProviders: AIProviderConfig[] = (request.customProviders && request.customProviders.length > 0)
+      ? request.customProviders
+      : this.defaultProviders;
 
-    // Priority: requested activeProviderId first, followed by other available providers with keys
-    const preferredId = request.activeProviderId || 'gemini';
+    // Priority: requested activeProviderId first, followed by other providers in their exact rearrangeable order
+    const preferredId = request.activeProviderId || allProviders[0]?.id || 'gemini';
     const queue: AIProviderConfig[] = [];
 
     const preferred = allProviders.find(p => p.id === preferredId);
-    if (preferred) queue.push(preferred);
+    if (preferred && preferred.enabled) {
+      queue.push(preferred);
+    }
 
     for (const p of allProviders) {
       if (p.id !== preferredId && p.enabled) {
-        // Only queue if an API key is available
-        const hasKey = p.apiKey || request.apiKeys?.[p.id];
+        // Queue if an API key is available or if provider is free tier / self-hosted
+        const hasKey = p.apiKey || request.apiKeys?.[p.id] || (p.baseUrl && (p.baseUrl.includes('localhost') || p.baseUrl.includes('127.0.0.1')));
         if (hasKey) {
           queue.push(p);
         }
