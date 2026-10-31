@@ -251,6 +251,24 @@ const SIGNATURES: ProviderSignature[] = [
     urlPatterns: [/alphavantage\.co/i],
     envVarPatterns: [/ALPHA_VANTAGE_API_KEY/i, /ALPHAVANTAGE_KEY/i],
   },
+
+  // 13. NewsTracker Master Financial Market API
+  {
+    id: 'master-market',
+    name: 'NewsTracker Master Market API',
+    category: 'data',
+    providerType: 'generic-rest',
+    baseUrl: '/api/market',
+    headerName: 'X-Master-API-Key',
+    headerPrefix: '',
+    defaultModel: 'realtime-quotes-and-ratios',
+    keyRegexes: [
+      /^nt_live_market_[a-zA-Z0-9_\-]{16,64}$/,
+      /^nt-market-[a-zA-Z0-9_\-]{16,64}$/,
+    ],
+    urlPatterns: [/\/api\/market/i],
+    envVarPatterns: [/MASTER_API_KEY/i, /MARKET_API_KEY/i, /FINANCE_API_KEY/i],
+  },
 ];
 
 /**

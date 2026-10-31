@@ -6,6 +6,7 @@ import { TrackerPage } from './pages/TrackerPage';
 import { OrchestratorPage } from './pages/OrchestratorPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { MasterApiPage } from './pages/MasterApiPage';
 
 import {
   PromptPreset,
@@ -297,6 +298,26 @@ export function App() {
               await saveCustomModels(models);
             }}
             telemetry={currentTelemetry}
+          />
+        )}
+
+        {activeTab === 'masterapi' && (
+          <MasterApiPage
+            onRegisterKey={async (newKeyEntry) => {
+              const existingIndex = universalKeys.findIndex(
+                (k) => k.id === newKeyEntry.id || k.name === newKeyEntry.name
+              );
+              let updated: UniversalApiKeyEntry[];
+              if (existingIndex >= 0) {
+                updated = [...universalKeys];
+                updated[existingIndex] = newKeyEntry;
+              } else {
+                updated = [newKeyEntry, ...universalKeys];
+              }
+              setUniversalKeys(updated);
+              await saveUniversalApiKeys(updated);
+            }}
+            onNavigateToApiKeys={() => setActiveTab('apikeys')}
           />
         )}
 

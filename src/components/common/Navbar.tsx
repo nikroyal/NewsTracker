@@ -1,9 +1,9 @@
 import React from 'react';
-import { ShieldCheck, Key, Cpu, History, LogOut, LayoutGrid } from 'lucide-react';
+import { ShieldCheck, Key, Cpu, History, LogOut, LayoutGrid, Activity } from 'lucide-react';
 import { LiveUsageMeter } from './LiveUsageMeter';
 import { ProviderQuotaTelemetry } from '../../types/ai';
 
-export type NavigationTab = 'tracker' | 'orchestrator' | 'apikeys' | 'history';
+export type NavigationTab = 'tracker' | 'orchestrator' | 'masterapi' | 'apikeys' | 'history';
 
 interface NavbarProps {
   currentTab: NavigationTab;
@@ -68,6 +68,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Cpu className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Orchestrator</span>
+          </button>
+
+          <button
+            onClick={() => onSelectTab('masterapi')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all flex items-center space-x-1.5 cursor-pointer ${
+              currentTab === 'masterapi'
+                ? 'bg-[#1C1B18] text-white font-semibold shadow-xs'
+                : 'text-[#68665E] hover:text-[#1C1B18] hover:bg-[#FAF9F5]'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Master API</span>
           </button>
 
           <button
