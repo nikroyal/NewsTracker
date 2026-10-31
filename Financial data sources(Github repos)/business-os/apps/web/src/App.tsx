@@ -1,0 +1,45 @@
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { ProtectedLayout } from './components/ProtectedLayout';
+import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
+import { Settings } from './pages/Settings';
+import { Watchlist } from './pages/Watchlist';
+import { Reports } from './pages/Reports';
+import { Opportunities } from './pages/Opportunities';
+import { IntelligenceHub } from './pages/IntelligenceHub';
+import { Markets } from './pages/Markets';
+import { Copilot } from './pages/Copilot';
+import { DeveloperConsole } from './pages/DeveloperConsole';
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Public Auth Routes */}
+          <Route path="/login" element={<Login />} />
+          
+          {/* Protected Main Routes */}
+          <Route element={<ProtectedLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/markets" element={<Markets />} />
+            <Route path="/watchlist" element={<Watchlist />} />
+            <Route path="/opportunities" element={<Opportunities />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/intelligence/:ticker?" element={<IntelligenceHub />} />
+            <Route path="/copilot" element={<Copilot />} />
+            <Route path="/developer" element={<DeveloperConsole />} />
+            <Route path="/settings" element={<Settings />} />
+          </Route>
+          
+          {/* Fallback routes */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+};
+export default App;
