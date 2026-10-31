@@ -7,6 +7,8 @@ import { cors } from 'hono/cors';
 import { DataAggregatorCoordinator } from './aggregators/data';
 import { ModelOrchestrator } from './aggregators/ai/orchestrator';
 import { marketRouter } from './market/routes';
+import { YahooFinanceEdgeClient } from './market/yahoo-client';
+import { FinanceToolkitEngine } from './market/toolkit-formulas';
 
 const app = new Hono().basePath('/api');
 
@@ -18,6 +20,8 @@ app.route('/market', marketRouter);
 
 const dataAggregator = new DataAggregatorCoordinator();
 const modelOrchestrator = new ModelOrchestrator();
+const marketYahoo = new YahooFinanceEdgeClient();
+const marketToolkit = new FinanceToolkitEngine();
 
 // Health check
 app.get('/health', (c) => {
@@ -86,11 +90,31 @@ app.post('/pipeline/run', async (c) => {
       partitionedArticles[company] = aggResult.partitionedResults[company]?.articles || [];
     }
 
-    // Step B: Synthesize with Model Orchestrator
+    // Step B: Query Master Market API in parallel for real-time financials & health scores
+    const companyMarketData: Record<string, any> = {};
+    await Promise.all(
+      companies.map(async (company) => {
+        try {
+          const quote = await marketYahoo.getQuote(company);
+          if (quote) {
+            const statements = await marketYahoo.getFinancials(company).catch(() => null);
+            const ratios = statements ? marketToolkit.computeRatios(statements, quote) : null;
+            const dupont = statements ? marketToolkit.computeDuPont(statements) : null;
+            const scores = statements ? marketToolkit.computeScores(statements, quote) : null;
+            companyMarketData[company] = { quote, ratios, dupont, scores };
+          }
+        } catch {
+          // Graceful fallback for non-public entities
+        }
+      })
+    );
+
+    // Step C: Synthesize with Model Orchestrator (Enriched with Live Financial Intelligence)
     const aiResult = await modelOrchestrator.synthesize({
       companies,
       userPrompt: body.userPrompt || '',
       partitionedArticles,
+      companyMarketData,
       activeProviderId: body.activeProviderId,
       customProviders: body.customProviders || [],
       apiKeys: body.apiKeys || {},

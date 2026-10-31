@@ -7,6 +7,7 @@ import { AggregationResult, CanonicalArticle, DataSourceConfig, IDataSourceAdapt
 import { GoogleRssAdapter } from './adapters/google-rss';
 import { FinnhubAdapter } from './adapters/finnhub';
 import { GenericRestAdapter } from './adapters/generic-rest';
+import { YahooNewsAdapter } from './adapters/yahoo-news';
 import { deduplicateArticles } from './deduplicator';
 import { partitionCompanyArticles } from './partitioner';
 import { scrapeArticleFullText } from './scraper/scraper-engine';
@@ -25,6 +26,7 @@ export class DataAggregatorCoordinator {
 
   constructor() {
     this.registerAdapter(new GoogleRssAdapter());
+    this.registerAdapter(new YahooNewsAdapter());
     this.registerAdapter(new FinnhubAdapter());
     this.registerAdapter(new GenericRestAdapter());
   }
@@ -55,6 +57,14 @@ export class DataAggregatorCoordinator {
         sourcesQueried++;
         const rssArticles = await rssAdapter.fetchCompanyNews(company, { timeframeDays });
         rawArticles.push(...rssArticles);
+      }
+
+      // Query Yahoo Financial News Wire (via Master Edge API, zero-key financial wire)
+      const yahooAdapter = this.adapters.get('yahoo-news');
+      if (yahooAdapter) {
+        sourcesQueried++;
+        const yahooArticles = await yahooAdapter.fetchCompanyNews(company, { timeframeDays });
+        rawArticles.push(...yahooArticles);
       }
 
       // Query Finnhub if key provided or company looks like a ticker

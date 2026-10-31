@@ -149,6 +149,7 @@ export interface SynthesisRequest {
   companies: string[];
   userPrompt: string;
   partitionedArticles: Record<string, CanonicalArticle[]>;
+  companyMarketData?: Record<string, any>;
   activeProviderId?: string;
   customProviders?: AIProviderConfig[];
   apiKeys?: Record<string, string>;

@@ -22,14 +22,38 @@ CRITICAL INSTRUCTIONS:
 3. OBJECTIVE SENTIMENT: Provide a calibrated sentiment score between -1.0 (extremely bearish/catastrophic) and +1.0 (extremely bullish/transformational), centered around 0.0 (neutral).
 4. CRITICAL EVENT DETECTION: Explicitly flag high-volatility events (e.g. CEO resignations, SEC or regulatory investigations, M&A acquisitions, lawsuits, earnings surprises).
 5. ECOSYSTEM IMPACT MATRIX: Analyze secondary ripple effects between the tracked companies (e.g., if one company's news impacts another's supply chain or market share).
-6. OUTPUT FORMAT: You must reply with STRICT JSON ONLY matching the requested schema. Do not include markdown code block ticks outside the JSON.`;
+6. FINANCIAL GROUNDING & FACT-CHECKING: When live financial market metrics and balance sheet health (P/E, Debt-to-Equity, Altman Z-Score, DuPont margins) are provided for a company, cross-examine breaking news against these hard quantitative fundamentals. Explain whether market sentiment is justified or if the company's financial cushion remains resilient.
+7. OUTPUT FORMAT: You must reply with STRICT JSON ONLY matching the requested schema. Do not include markdown code block ticks outside the JSON.`;
 
   // Format company news payload
   let companiesNewsPayload = '';
 
   for (const company of companies) {
     const articles = partitionedArticles[company] || [];
+    const market = request.companyMarketData?.[company];
+
     companiesNewsPayload += `\n### COMPANY: ${company.toUpperCase()}\n`;
+
+    // Inject Live Master Market API Intelligence if available
+    if (market) {
+      companiesNewsPayload += `\n[LIVE FINANCIAL MARKET METRICS & BALANCE SHEET HEALTH (Powered by Master Market Engine)]:\n`;
+      if (market.quote) {
+        companiesNewsPayload += `- Real-Time Stock Price: ${market.quote.currency} ${market.quote.lastPrice} (${market.quote.percentChange >= 0 ? '+' : ''}${Number(market.quote.percentChange || 0).toFixed(2)}%) | Market Cap: ${market.quote.marketCap} | 52W Range: ${market.quote.yearLow} - ${market.quote.yearHigh}\n`;
+        companiesNewsPayload += `- Valuation: Trailing P/E: ${market.ratios?.valuation?.trailingPE || market.quote.peRatio || 'N/A'}x | Forward P/E: ${market.ratios?.valuation?.forwardPE || 'N/A'}x | EV/EBITDA: ${market.ratios?.valuation?.enterpriseValueToEbitda || 'N/A'}x | Price/Book: ${market.ratios?.valuation?.priceToBook || 'N/A'}x\n`;
+      }
+      if (market.ratios) {
+        companiesNewsPayload += `- Profitability: Gross Margin: ${market.ratios.profitability.grossMarginPercent}% | Operating Margin: ${market.ratios.profitability.operatingMarginPercent}% | Net Profit Margin: ${market.ratios.profitability.netProfitMarginPercent}% | ROE: ${market.ratios.profitability.returnOnEquityPercent}%\n`;
+        companiesNewsPayload += `- Solvency & Leverage: Current Ratio: ${market.ratios.liquidityAndSolvency.currentRatio}x | Debt-to-Equity: ${market.ratios.liquidityAndSolvency.debtToEquity}x | Interest Coverage: ${market.ratios.liquidityAndSolvency.interestCoverageRatio}x\n`;
+      }
+      if (market.dupont?.threeStage) {
+        companiesNewsPayload += `- DuPont 3-Stage ROE: Net Margin (${market.dupont.threeStage.netProfitMargin}) × Asset Turnover (${market.dupont.threeStage.assetTurnover}) × Financial Leverage (${market.dupont.threeStage.equityMultiplier}) = ${market.dupont.threeStage.returnOnEquity}%\n`;
+      }
+      if (market.scores) {
+        companiesNewsPayload += `- Financial Distress Risk (Altman Z-Score): ${market.scores.altmanZScore.score} (${market.scores.altmanZScore.zone}) - ${market.scores.altmanZScore.description}\n`;
+        companiesNewsPayload += `- Piotroski Financial Health Rating: ${market.scores.piotroskiFScoreEstimate.rating} (${market.scores.piotroskiFScoreEstimate.score}/9)\n`;
+      }
+    }
+
     companiesNewsPayload += `Total Unique Articles Available: ${articles.length}\n`;
 
     if (articles.length === 0) {
