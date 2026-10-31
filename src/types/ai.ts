@@ -141,6 +141,7 @@ export interface SynthesisReport {
   globalSummary: string;
   companyAnalyses: Record<string, CompanyAnalysis>;
   ecosystemImpactMatrix: EcosystemImpactRow[];
+  companyMarketData?: Record<string, any>;
   quotaTelemetry: ProviderQuotaTelemetry;
   executionTimeMs: number;
 }

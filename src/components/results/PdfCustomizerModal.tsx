@@ -16,6 +16,7 @@ export const PdfCustomizerModal: React.FC<PdfCustomizerModalProps> = ({
 }) => {
   const [options, setOptions] = useState<PdfCustomizerOptions>({
     includeExecutiveSummary: true,
+    includeFinancialHealthTable: true,
     includeImpactMatrix: true,
     includeCatalystsAndRisks: true,
     includeCriticalEvents: true,
@@ -40,6 +41,7 @@ export const PdfCustomizerModal: React.FC<PdfCustomizerModalProps> = ({
 
   const toggles: { key: keyof PdfCustomizerOptions; label: string; desc: string }[] = [
     { key: 'includeExecutiveSummary', label: 'Executive Macro Overview', desc: 'Overall high-level cross-entity synthesis' },
+    { key: 'includeFinancialHealthTable', label: 'Quantitative Financials & Valuation Ratios', desc: 'Real-time price, P/E, EV/EBITDA, DuPont ROE, and Altman Z-Score' },
     { key: 'includeImpactMatrix', label: 'Cross-Entity Ripple Effect Matrix', desc: 'Dependencies and secondary ecosystem correlations' },
     { key: 'includeCatalystsAndRisks', label: 'Catalysts & Risk Factors', desc: 'Bulleted positive drivers and market/regulatory risks' },
     { key: 'includeCriticalEvents', label: 'Critical High-Volatility Events', desc: 'Leadership, earnings, regulatory, and litigation alerts' },

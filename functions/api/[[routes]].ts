@@ -121,7 +121,10 @@ app.post('/pipeline/run', async (c) => {
     });
 
     return c.json({
-      report: aiResult.report,
+      report: {
+        ...aiResult.report,
+        companyMarketData,
+      },
       telemetry: aiResult.telemetry,
       aggregation: {
         totalUniqueArticles: aggResult.allArticles.length,
