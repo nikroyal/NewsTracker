@@ -19,6 +19,47 @@ export interface UniversalApiKeyEntry {
   enabled: boolean;
   notes?: string;
   updatedAt: string;
+
+  // Advanced Detector & Recorder Telemetry
+  detectedProvider?: string;
+  maskedKey?: string;
+  healthStatus?: 'healthy' | 'degraded' | 'rate_limited' | 'unauthorized' | 'untested';
+  lastPingLatencyMs?: number;
+  availableModels?: string[];
+  discoveredQuota?: {
+    remainingTokens?: number;
+    remainingRequests?: number;
+    limitTokens?: number;
+    limitRequests?: number;
+    resetTime?: string;
+  };
+  tags?: string[];
+}
+
+export interface DetectAndProbeRequest {
+  providerId: string;
+  apiKey?: string;
+  baseUrl?: string;
+  headerName?: string;
+  headerPrefix?: string;
+  queryParamName?: string;
+  model?: string;
+}
+
+export interface DetectAndProbeResponse {
+  valid: boolean;
+  status: number;
+  latencyMs: number;
+  message: string;
+  healthStatus: 'healthy' | 'degraded' | 'rate_limited' | 'unauthorized' | 'untested';
+  availableModels?: string[];
+  telemetry?: {
+    remainingTokens?: number;
+    remainingRequests?: number;
+    limitTokens?: number;
+    limitRequests?: number;
+    resetTime?: string;
+  };
 }
 
 export interface ProviderQuotaTelemetry {

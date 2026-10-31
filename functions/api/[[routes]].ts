@@ -106,67 +106,280 @@ app.post('/pipeline/run', async (c) => {
   }
 });
 
-// 4. In-UI Connection Ping Tester for API Keys & Custom Endpoints
+// 4. In-UI Connection Ping & Deep Probe Identifier
 app.post('/sources/test', async (c) => {
   const start = Date.now();
   try {
     const body = await c.req.json();
-    const { providerId, apiKey, baseUrl, model } = body;
+    const {
+      providerId,
+      apiKey,
+      baseUrl,
+      headerName = 'Authorization',
+      headerPrefix = 'Bearer',
+      queryParamName,
+    } = body;
 
-    if (!providerId) {
-      return c.json({ error: 'providerId is required' }, 400);
-    }
+    let targetBase = baseUrl ? baseUrl.replace(/\/+$/, '') : '';
+    let availableModels: string[] = [];
+    let quotaTelemetry: any = undefined;
 
-    // Test Gemini
-    if (providerId === 'gemini') {
-      if (!apiKey) return c.json({ valid: false, message: 'Missing API key' }, 400);
+    // Helper to extract rate limit headers
+    const extractHeaders = (res: Response) => {
+      const remainingTokens = res.headers.get('x-ratelimit-remaining-tokens');
+      const remainingRequests = res.headers.get('x-ratelimit-remaining-requests');
+      const limitTokens = res.headers.get('x-ratelimit-limit-tokens');
+      const limitRequests = res.headers.get('x-ratelimit-limit-requests');
+      const resetTime = res.headers.get('x-ratelimit-reset-tokens') || res.headers.get('x-ratelimit-reset-requests');
+
+      if (remainingTokens || remainingRequests || limitTokens) {
+        quotaTelemetry = {
+          remainingTokens: remainingTokens ? Number(remainingTokens) : undefined,
+          remainingRequests: remainingRequests ? Number(remainingRequests) : undefined,
+          limitTokens: limitTokens ? Number(limitTokens) : undefined,
+          limitRequests: limitRequests ? Number(limitRequests) : undefined,
+          resetTime: resetTime || undefined,
+        };
+      }
+    };
+
+    // 1. Google Gemini
+    if (providerId === 'gemini' || targetBase.includes('generativelanguage.googleapis.com')) {
+      if (!apiKey) return c.json({ valid: false, status: 400, healthStatus: 'unauthorized', message: 'Missing Gemini API key' }, 400);
       const testUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
       const res = await fetch(testUrl);
       const latency = Date.now() - start;
+      extractHeaders(res);
+
       if (res.ok) {
-        return c.json({ valid: true, status: 200, latencyMs: latency, message: 'Google Gemini Connected Successfully' });
+        const json: any = await res.json().catch(() => ({}));
+        if (Array.isArray(json?.models)) {
+          availableModels = json.models
+            .map((m: any) => m.name ? m.name.replace(/^models\//, '') : '')
+            .filter((name: string) => name && !name.includes('embedding') && !name.includes('aqa'))
+            .slice(0, 15);
+        }
+        return c.json({
+          valid: true,
+          status: 200,
+          latencyMs: latency,
+          healthStatus: 'healthy',
+          message: `Google Gemini Verified (${availableModels.length} models discovered)`,
+          availableModels,
+          telemetry: quotaTelemetry,
+        });
       } else {
-        return c.json({ valid: false, status: res.status, latencyMs: latency, message: 'Invalid Gemini API Key' });
+        return c.json({
+          valid: false,
+          status: res.status,
+          latencyMs: latency,
+          healthStatus: res.status === 429 ? 'rate_limited' : 'unauthorized',
+          message: res.status === 429 ? 'Gemini Quota Exceeded / Rate Limited' : 'Invalid Gemini API Key',
+        });
       }
     }
 
-    // Test OpenAI / Groq / OpenRouter / Custom OpenAI-compatible
-    if (providerId === 'openai' || providerId === 'groq' || providerId === 'openrouter' || baseUrl) {
-      const targetBase = (baseUrl || (
-        providerId === 'openai' ? 'https://api.openai.com/v1' :
-        providerId === 'groq' ? 'https://api.groq.com/openai/v1' :
-        'https://openrouter.ai/api/v1'
-      )).replace(/\/+$/, '');
-
-      const testUrl = `${targetBase}/models`;
+    // 2. Anthropic Claude
+    if (providerId === 'anthropic' || targetBase.includes('api.anthropic.com')) {
+      if (!apiKey) return c.json({ valid: false, status: 400, healthStatus: 'unauthorized', message: 'Missing Anthropic API key' }, 400);
+      const testUrl = 'https://api.anthropic.com/v1/models';
       const res = await fetch(testUrl, {
-        headers: { ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}) },
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
       });
       const latency = Date.now() - start;
+      extractHeaders(res);
 
       if (res.ok) {
-        return c.json({ valid: true, status: 200, latencyMs: latency, message: `${providerId.toUpperCase()} Connected Successfully` });
+        const json: any = await res.json().catch(() => ({}));
+        if (Array.isArray(json?.data)) {
+          availableModels = json.data.map((m: any) => m.id).slice(0, 15);
+        } else {
+          availableModels = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
+        }
+        return c.json({
+          valid: true,
+          status: 200,
+          latencyMs: latency,
+          healthStatus: 'healthy',
+          message: `Anthropic Claude Connected (${availableModels.length} models available)`,
+          availableModels,
+          telemetry: quotaTelemetry,
+        });
       } else {
-        return c.json({ valid: false, status: res.status, latencyMs: latency, message: `Failed to connect to ${providerId} (${res.status})` });
+        return c.json({
+          valid: false,
+          status: res.status,
+          latencyMs: latency,
+          healthStatus: res.status === 429 ? 'rate_limited' : 'unauthorized',
+          message: res.status === 429 ? 'Anthropic Rate Limited' : `Anthropic Error (${res.status})`,
+        });
       }
     }
 
-    // Test Finnhub
-    if (providerId === 'finnhub') {
-      if (!apiKey) return c.json({ valid: false, message: 'Missing Finnhub API key' }, 400);
+    // 3. Finnhub News
+    if (providerId === 'finnhub' || targetBase.includes('finnhub.io')) {
+      if (!apiKey) return c.json({ valid: false, status: 400, healthStatus: 'unauthorized', message: 'Missing Finnhub API key' }, 400);
       const testUrl = `https://finnhub.io/api/v1/news?category=general&token=${apiKey}`;
       const res = await fetch(testUrl);
       const latency = Date.now() - start;
+      extractHeaders(res);
+
       if (res.ok) {
-        return c.json({ valid: true, status: 200, latencyMs: latency, message: 'Finnhub API Connected Successfully' });
+        return c.json({
+          valid: true,
+          status: 200,
+          latencyMs: latency,
+          healthStatus: 'healthy',
+          message: 'Finnhub Financial News Stream Verified Active',
+          telemetry: quotaTelemetry,
+        });
       } else {
-        return c.json({ valid: false, status: res.status, latencyMs: latency, message: 'Invalid Finnhub API Key' });
+        return c.json({
+          valid: false,
+          status: res.status,
+          latencyMs: latency,
+          healthStatus: res.status === 429 ? 'rate_limited' : 'unauthorized',
+          message: 'Invalid Finnhub API Token',
+        });
       }
     }
 
-    return c.json({ valid: true, status: 200, latencyMs: Date.now() - start, message: 'Endpoint acknowledged' });
+    // 4. Alpha Vantage
+    if (providerId === 'alphavantage' || targetBase.includes('alphavantage.co')) {
+      if (!apiKey) return c.json({ valid: false, status: 400, healthStatus: 'unauthorized', message: 'Missing Alpha Vantage key' }, 400);
+      const testUrl = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&limit=2&apikey=${apiKey}`;
+      const res = await fetch(testUrl);
+      const latency = Date.now() - start;
+      extractHeaders(res);
+      const text = await res.text();
+      const valid = res.ok && !text.includes('Error Message') && !text.includes('Invalid API call');
+
+      return c.json({
+        valid,
+        status: valid ? 200 : 401,
+        latencyMs: latency,
+        healthStatus: valid ? 'healthy' : 'unauthorized',
+        message: valid ? 'Alpha Vantage News Feed Verified' : 'Alpha Vantage Authentication Failed',
+        telemetry: quotaTelemetry,
+      });
+    }
+
+    // 5. Standard OpenAI, Groq, OpenRouter, Perplexity, DeepSeek, Mistral, Together, Cerebras
+    // OR ANY UNIDENTIFIED / CUSTOM AI OR REST ENDPOINT
+    const authHeaders: Record<string, string> = {};
+    if (apiKey) {
+      if (headerName === 'queryParam' && queryParamName) {
+        // will append to url below
+      } else if (headerPrefix) {
+        authHeaders[headerName] = `${headerPrefix} ${apiKey}`.trim();
+      } else {
+        authHeaders[headerName] = apiKey;
+      }
+    }
+
+    if (!targetBase) {
+      targetBase = providerId === 'openai' ? 'https://api.openai.com/v1' :
+                   providerId === 'groq' ? 'https://api.groq.com/openai/v1' :
+                   providerId === 'openrouter' ? 'https://openrouter.ai/api/v1' :
+                   providerId === 'deepseek' ? 'https://api.deepseek.com/v1' :
+                   providerId === 'mistral' ? 'https://api.mistral.ai/v1' :
+                   providerId === 'perplexity' ? 'https://api.perplexity.ai' :
+                   'https://api.openai.com/v1';
+    }
+
+    // Probe 1: Attempt to fetch live model catalog (/models)
+    let probeUrl = `${targetBase}/models`;
+    if (queryParamName && apiKey) {
+      probeUrl += `?${encodeURIComponent(queryParamName)}=${encodeURIComponent(apiKey)}`;
+    }
+
+    let res = await fetch(probeUrl, {
+      method: 'GET',
+      headers: authHeaders,
+    }).catch(() => null);
+
+    let latency = Date.now() - start;
+
+    if (res && res.ok) {
+      extractHeaders(res);
+      const json: any = await res.json().catch(() => ({}));
+      if (Array.isArray(json?.data)) {
+        availableModels = json.data
+          .map((m: any) => typeof m === 'string' ? m : m.id)
+          .filter(Boolean)
+          .slice(0, 20);
+      } else if (Array.isArray(json?.models)) {
+        availableModels = json.models
+          .map((m: any) => typeof m === 'string' ? m : m.id || m.name)
+          .filter(Boolean)
+          .slice(0, 20);
+      }
+
+      return c.json({
+        valid: true,
+        status: 200,
+        latencyMs: latency,
+        healthStatus: 'healthy',
+        message: `${(body.name || providerId).toUpperCase()} Verified (${availableModels.length} models discovered)`,
+        availableModels,
+        telemetry: quotaTelemetry,
+      });
+    }
+
+    // Probe 2: If /models returned 404 or failed (e.g. custom news/data REST API), probe base endpoint
+    let fallbackProbeUrl = targetBase;
+    if (queryParamName && apiKey) {
+      fallbackProbeUrl += (fallbackProbeUrl.includes('?') ? '&' : '?') + `${encodeURIComponent(queryParamName)}=${encodeURIComponent(apiKey)}`;
+    }
+
+    res = await fetch(fallbackProbeUrl, {
+      method: 'GET',
+      headers: authHeaders,
+    }).catch(() => null);
+
+    latency = Date.now() - start;
+
+    if (res && (res.ok || res.status === 204 || res.status === 304)) {
+      extractHeaders(res);
+      return c.json({
+        valid: true,
+        status: res.status,
+        latencyMs: latency,
+        healthStatus: 'healthy',
+        message: `Custom Endpoint Connected (${res.status})`,
+        telemetry: quotaTelemetry,
+      });
+    }
+
+    if (res) {
+      const healthStatus = res.status === 429 ? 'rate_limited' : (res.status === 401 || res.status === 403) ? 'unauthorized' : 'degraded';
+      return c.json({
+        valid: false,
+        status: res.status,
+        latencyMs: latency,
+        healthStatus,
+        message: `Endpoint response HTTP ${res.status} (${healthStatus.replace('_', ' ')})`,
+      });
+    }
+
+    return c.json({
+      valid: false,
+      status: 504,
+      latencyMs: latency,
+      healthStatus: 'degraded',
+      message: 'Connection timed out or host unreachable',
+    });
   } catch (error: any) {
-    return c.json({ valid: false, status: 500, latencyMs: Date.now() - start, message: error.message || 'Connection failed' });
+    return c.json({
+      valid: false,
+      status: 500,
+      latencyMs: Date.now() - start,
+      healthStatus: 'degraded',
+      message: error.message || 'Connection test failed',
+    });
   }
 });
 

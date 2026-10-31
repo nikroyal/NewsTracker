@@ -13,9 +13,23 @@ import {
   Radio,
   ExternalLink,
   Check,
+  Zap,
+  Sparkles,
+  Layers,
+  Activity,
+  Server,
+  Terminal,
+  HelpCircle,
+  Cpu,
 } from 'lucide-react';
 import { UniversalApiKeyEntry } from '../types/ai';
 import { testEndpointConnection } from '../lib/api-client';
+import {
+  detectApiKeysOrEndpoints,
+  detectSingleApiKeyOrEndpoint,
+  maskApiKey,
+  DetectedApiEntry,
+} from '../lib/api-detector';
 
 interface ApiKeysPageProps {
   keys: UniversalApiKeyEntry[];
@@ -24,130 +38,233 @@ interface ApiKeysPageProps {
 
 export const ApiKeysPage: React.FC<ApiKeysPageProps> = ({ keys, onSaveKeys }) => {
   const [entries, setEntries] = useState<UniversalApiKeyEntry[]>(keys);
-  const [showAddForm, setShowAddForm] = useState(false);
   const [showKeyMap, setShowKeyMap] = useState<Record<string, boolean>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { valid: boolean; message: string; latency?: number }>>({});
+  const [testResults, setTestResults] = useState<Record<string, {
+    valid: boolean;
+    message: string;
+    latency?: number;
+    healthStatus?: string;
+    models?: string[];
+  }>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // New Key Form State
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState<'ai' | 'data' | 'other'>('ai');
-  const [providerType, setProviderType] = useState<UniversalApiKeyEntry['providerType']>('openai-compatible');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [headerName, setHeaderName] = useState('Authorization');
-  const [headerPrefix, setHeaderPrefix] = useState('Bearer');
-  const [queryParamName, setQueryParamName] = useState('');
-  const [modelId, setModelId] = useState('');
-  const [notes, setNotes] = useState('');
+  // --- Smart Universal Ingestion / Detection Input State ---
+  const [smartInput, setSmartInput] = useState('');
+  const [detectedList, setDetectedList] = useState<DetectedApiEntry[]>([]);
+  const [activeDetected, setActiveDetected] = useState<DetectedApiEntry | null>(null);
+  const [isProbingDetected, setIsProbingDetected] = useState(false);
+  const [probeResult, setProbeResult] = useState<{
+    valid: boolean;
+    status: number;
+    latencyMs: number;
+    message: string;
+    healthStatus: string;
+    availableModels?: string[];
+    telemetry?: {
+      remainingTokens?: number;
+      remainingRequests?: number;
+      limitTokens?: number;
+      limitRequests?: number;
+      resetTime?: string;
+    };
+  } | null>(null);
 
-  // Quick preset template fills
-  const applyPreset = (presetType: string) => {
-    if (presetType === 'gemini') {
-      setName('Google Gemini');
-      setCategory('ai');
-      setProviderType('gemini-v1');
-      setBaseUrl('https://generativelanguage.googleapis.com');
-      setModelId('gemini-2.0-flash');
-      setHeaderName('queryParam');
-      setQueryParamName('key');
-    } else if (presetType === 'groq') {
-      setName('Groq Cloud');
-      setCategory('ai');
-      setProviderType('openai-compatible');
-      setBaseUrl('https://api.groq.com/openai/v1');
-      setModelId('llama-3.3-70b-versatile');
-      setHeaderName('Authorization');
-      setHeaderPrefix('Bearer');
-    } else if (presetType === 'openai') {
-      setName('OpenAI');
-      setCategory('ai');
-      setProviderType('openai-compatible');
-      setBaseUrl('https://api.openai.com/v1');
-      setModelId('gpt-4o-mini');
-      setHeaderName('Authorization');
-      setHeaderPrefix('Bearer');
-    } else if (presetType === 'finnhub') {
-      setName('Finnhub Financial News');
-      setCategory('data');
-      setProviderType('header-auth');
-      setBaseUrl('https://finnhub.io/api/v1');
-      setHeaderName('X-Finnhub-Token');
-      setHeaderPrefix('');
-    } else if (presetType === 'openrouter') {
-      setName('OpenRouter');
-      setCategory('ai');
-      setProviderType('openai-compatible');
-      setBaseUrl('https://openrouter.ai/api/v1');
-      setModelId('anthropic/claude-3.5-sonnet');
-      setHeaderName('Authorization');
-      setHeaderPrefix('Bearer');
-    } else if (presetType === 'custom') {
-      setName('');
-      setCategory('ai');
-      setProviderType('openai-compatible');
-      setBaseUrl('');
-      setModelId('');
-      setHeaderName('Authorization');
-      setHeaderPrefix('Bearer');
+  // Editable fields for active detected key
+  const [editedName, setEditedName] = useState('');
+  const [editedBaseUrl, setEditedBaseUrl] = useState('');
+  const [editedModelId, setEditedModelId] = useState('');
+  const [editedCategory, setEditedCategory] = useState<'ai' | 'data' | 'other'>('ai');
+  const [editedHeaderName, setEditedHeaderName] = useState('Authorization');
+  const [editedHeaderPrefix, setEditedHeaderPrefix] = useState('Bearer');
+  const [editedQueryParam, setEditedQueryParam] = useState('');
+
+  // Handle Smart Input Change (Real-Time Detection)
+  const handleSmartInputChange = (val: string) => {
+    setSmartInput(val);
+    setProbeResult(null);
+
+    if (!val.trim()) {
+      setDetectedList([]);
+      setActiveDetected(null);
+      return;
+    }
+
+    const detected = detectApiKeysOrEndpoints(val);
+    setDetectedList(detected);
+
+    if (detected.length > 0) {
+      const primary = detected[0];
+      setActiveDetected(primary);
+      setEditedName(primary.name);
+      setEditedBaseUrl(primary.baseUrl);
+      setEditedModelId(primary.modelId);
+      setEditedCategory(primary.category);
+      setEditedHeaderName(primary.headerName);
+      setEditedHeaderPrefix(primary.headerPrefix);
+      setEditedQueryParam(primary.queryParamName || '');
+    } else {
+      setActiveDetected(null);
     }
   };
 
-  const handleTestKey = async (entry: UniversalApiKeyEntry) => {
-    setTestingId(entry.id);
+  // Live Probe for Detected Key
+  const handleProbeDetected = async () => {
+    if (!activeDetected) return;
+    setIsProbingDetected(true);
+    setProbeResult(null);
+
     const res = await testEndpointConnection({
-      providerId: entry.id,
-      apiKey: entry.apiKey,
-      baseUrl: entry.baseUrl,
-      model: entry.modelId,
+      providerId: activeDetected.providerId,
+      name: editedName || activeDetected.name,
+      apiKey: activeDetected.sanitizedKey,
+      baseUrl: editedBaseUrl || activeDetected.baseUrl,
+      headerName: editedHeaderName,
+      headerPrefix: editedHeaderPrefix,
+      queryParamName: editedQueryParam,
+      model: editedModelId || activeDetected.modelId,
     });
-    setTestingId(null);
-    setTestResults(prev => ({
-      ...prev,
-      [entry.id]: {
-        valid: res.valid,
-        message: res.message || (res.valid ? 'Verified Connected' : 'Failed to connect'),
-        latency: res.latencyMs,
-      },
-    }));
+
+    setIsProbingDetected(false);
+    setProbeResult(res);
+
+    // If probe discovered live models, auto-select the first one
+    if (res.availableModels && res.availableModels.length > 0 && !editedModelId) {
+      setEditedModelId(res.availableModels[0]);
+    }
   };
 
-  const handleAddNewKey = async () => {
-    if (!name.trim() || !apiKey.trim()) return;
+  // Record Single Detected Key to Cloud Firestore
+  const handleRecordDetected = async () => {
+    if (!activeDetected || !activeDetected.sanitizedKey) return;
 
     const newEntry: UniversalApiKeyEntry = {
       id: 'key_' + Date.now().toString(36),
-      name: name.trim(),
-      category,
-      providerType,
-      baseUrl: baseUrl.trim() || undefined,
-      apiKey: apiKey.trim(),
-      headerName: headerName.trim() || 'Authorization',
-      headerPrefix: headerPrefix.trim(),
-      queryParamName: queryParamName.trim() || undefined,
-      modelId: modelId.trim() || undefined,
-      notes: notes.trim() || undefined,
+      name: (editedName || activeDetected.name).trim(),
+      category: editedCategory,
+      providerType: activeDetected.providerType,
+      baseUrl: (editedBaseUrl || activeDetected.baseUrl).trim() || undefined,
+      apiKey: activeDetected.sanitizedKey.trim(),
+      headerName: (editedHeaderName || 'Authorization').trim(),
+      headerPrefix: editedHeaderPrefix.trim(),
+      queryParamName: editedQueryParam.trim() || undefined,
+      modelId: (editedModelId || activeDetected.modelId).trim() || undefined,
       enabled: true,
       updatedAt: new Date().toISOString(),
+
+      // Advanced Recorder Metadata
+      detectedProvider: activeDetected.providerId,
+      maskedKey: maskApiKey(activeDetected.sanitizedKey),
+      healthStatus: (probeResult?.healthStatus as any) || 'healthy',
+      lastPingLatencyMs: probeResult?.latencyMs,
+      availableModels: probeResult?.availableModels,
+      discoveredQuota: probeResult?.telemetry,
+      tags: [activeDetected.category, activeDetected.isIdentified ? 'verified_provider' : 'custom_endpoint'],
     };
 
-    const updated = [newEntry, ...entries];
+    const updated = [newEntry, ...entries.filter(e => e.apiKey !== newEntry.apiKey)];
     setEntries(updated);
     setIsSaving(true);
     await onSaveKeys(updated);
     setIsSaving(false);
     setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
+    setTimeout(() => setSaveSuccess(false), 2500);
 
-    // Reset Form
-    setName('');
-    setApiKey('');
-    setBaseUrl('');
-    setModelId('');
-    setNotes('');
-    setShowAddForm(false);
+    // Clear input
+    setSmartInput('');
+    setDetectedList([]);
+    setActiveDetected(null);
+    setProbeResult(null);
+  };
+
+  // Record All Batch Detected Keys
+  const handleRecordAllBatch = async () => {
+    if (detectedList.length === 0) return;
+
+    const newEntries: UniversalApiKeyEntry[] = detectedList.map(item => ({
+      id: 'key_' + Math.random().toString(36).substring(2, 9),
+      name: item.name,
+      category: item.category,
+      providerType: item.providerType,
+      baseUrl: item.baseUrl || undefined,
+      apiKey: item.sanitizedKey,
+      headerName: item.headerName,
+      headerPrefix: item.headerPrefix,
+      queryParamName: item.queryParamName,
+      modelId: item.modelId || undefined,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+      detectedProvider: item.providerId,
+      maskedKey: maskApiKey(item.sanitizedKey),
+      healthStatus: 'untested',
+      tags: [item.category, item.isIdentified ? 'verified_provider' : 'custom_endpoint'],
+    }));
+
+    const updated = [...newEntries, ...entries];
+    setEntries(updated);
+    setIsSaving(true);
+    await onSaveKeys(updated);
+    setIsSaving(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
+
+    setSmartInput('');
+    setDetectedList([]);
+    setActiveDetected(null);
+    setProbeResult(null);
+  };
+
+  // Re-probe an existing recorded key in Vault
+  const handleReProbeVaultKey = async (entry: UniversalApiKeyEntry) => {
+    setTestingId(entry.id);
+    const res = await testEndpointConnection({
+      providerId: entry.detectedProvider || entry.id,
+      name: entry.name,
+      apiKey: entry.apiKey,
+      baseUrl: entry.baseUrl,
+      headerName: entry.headerName,
+      headerPrefix: entry.headerPrefix,
+      queryParamName: entry.queryParamName,
+      model: entry.modelId,
+    });
+    setTestingId(null);
+
+    setTestResults(prev => ({
+      ...prev,
+      [entry.id]: {
+        valid: res.valid,
+        message: res.message,
+        latency: res.latencyMs,
+        healthStatus: res.healthStatus,
+        models: res.availableModels,
+      },
+    }));
+
+    // Update in state and Firestore
+    const updated = entries.map(e => {
+      if (e.id === entry.id) {
+        return {
+          ...e,
+          healthStatus: res.healthStatus,
+          lastPingLatencyMs: res.latencyMs,
+          availableModels: res.availableModels || e.availableModels,
+          discoveredQuota: res.telemetry || e.discoveredQuota,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return e;
+    });
+
+    setEntries(updated);
+    await onSaveKeys(updated);
+  };
+
+  // Select Model for Recorded Key
+  const handleSelectModel = async (id: string, modelId: string) => {
+    const updated = entries.map(e => (e.id === id ? { ...e, modelId } : e));
+    setEntries(updated);
+    await onSaveKeys(updated);
   };
 
   const handleDelete = async (id: string) => {
@@ -170,227 +287,251 @@ export const ApiKeysPage: React.FC<ApiKeysPageProps> = ({ keys, onSaveKeys }) =>
 
   return (
     <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
-      {/* Page Title & Actions */}
+      {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E6E5DE] pb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#1C1B18] font-['Geist',sans-serif] flex items-center space-x-2.5">
             <Key className="w-6 h-6 text-[#1C1B18]" />
-            <span>Universal API Keys & Endpoints</span>
+            <span>Universal API Detector & Recorder Vault</span>
           </h1>
           <p className="text-sm text-[#68665E] mt-1 font-['Geist',sans-serif]">
-            Add and manage literally any API key, custom REST news feed, or AI model endpoint. Stored 100% in Cloud Firestore.
+            Paste literally any API key, cURL command, or .env file. Automatically identifies providers, benchmarks latency, discovers live models, and records 100% in Cloud Firestore.
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddForm(prev => !prev)}
-          className="px-4 py-2.5 rounded-xl bg-[#1C1B18] hover:bg-[#2D2D2D] text-white text-xs font-medium flex items-center space-x-2 transition-all shadow-sm cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{showAddForm ? 'Close Builder' : 'Add Any API Key'}</span>
-        </button>
-      </div>
-
-      {/* Security & Firestore Note */}
-      <div className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E6E5DE] flex items-start space-x-3 text-xs text-[#68665E] shadow-sm">
-        <Shield className="w-4 h-4 text-[#1C1B18] flex-shrink-0 mt-0.5" />
-        <div>
-          <span className="font-semibold text-[#1C1B18]">Universal Compatibility & Cloud Storage:</span> You are not restricted to any fixed set of providers. Connect any API key, bearer token, or custom header authentication for news feeds, market APIs, or LLMs. Everything is stored directly in your private Cloud Firestore document (`settings/universal_keys`), with zero keys on your local machine.
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-mono px-3 py-1.5 rounded-xl bg-[#FFFFFF] border border-[#E6E5DE] text-[#68665E]">
+            Vault Keys: <strong className="text-[#1C1B18]">{entries.length}</strong>
+          </span>
         </div>
       </div>
 
-      {/* Add New API Form (Dedicated Section) */}
-      {showAddForm && (
-        <section className="p-6 bg-[#FFFFFF] border border-[#D5D4CC] rounded-2xl shadow-sm space-y-6 animate-fadeIn">
-          <div className="flex items-center justify-between border-b border-[#E6E5DE] pb-4">
-            <div>
-              <h2 className="text-base font-semibold text-[#1C1B18]">Universal API Configuration Builder</h2>
-              <p className="text-xs text-[#68665E]">Configure custom headers, base URLs, or query param tokens</p>
-            </div>
-            <div className="flex items-center space-x-1.5 text-xs">
-              <span className="text-[#68665E] text-[11px] font-mono mr-1">Quick Fill:</span>
-              <button
-                type="button"
-                onClick={() => applyPreset('gemini')}
-                className="px-2 py-1 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] text-[#1C1B18] font-mono transition"
-              >
-                Gemini
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('groq')}
-                className="px-2 py-1 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] text-[#1C1B18] font-mono transition"
-              >
-                Groq
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('openai')}
-                className="px-2 py-1 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] text-[#1C1B18] font-mono transition"
-              >
-                OpenAI
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('finnhub')}
-                className="px-2 py-1 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] text-[#1C1B18] font-mono transition"
-              >
-                Finnhub
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('openrouter')}
-                className="px-2 py-1 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] text-[#1C1B18] font-mono transition"
-              >
-                OpenRouter
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPreset('custom')}
-                className="px-2 py-1 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] text-[#1C1B18] font-mono transition"
-              >
-                Custom
-              </button>
-            </div>
+      {/* --- SMART DETECTION & INGESTION COMMAND BOX --- */}
+      <section className="p-6 bg-[#FFFFFF] border border-[#D5D4CC] rounded-3xl shadow-sm space-y-5 animate-fadeIn">
+        <div className="flex items-center justify-between border-b border-[#E6E5DE] pb-3">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-4 h-4 text-[#1C1B18]" />
+            <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#1C1B18]">
+              Intelligent Universal Ingestion Bar
+            </h2>
           </div>
+          <span className="text-[11px] font-mono text-[#68665E]">
+            AI & News Feeds • cURL • .env • Unidentified Models
+          </span>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-['Geist',sans-serif]">
-            {/* Name */}
-            <div>
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                Provider / Feed Name *
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. DeepSeek-V3, AlphaVantage, Finnhub"
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition"
-              />
-            </div>
+        {/* Input Textarea */}
+        <div className="relative">
+          <textarea
+            rows={smartInput.includes('\n') ? 4 : 2}
+            value={smartInput}
+            onChange={(e) => handleSmartInputChange(e.target.value)}
+            placeholder="Paste raw key (e.g. sk-..., AIzaSy..., gsk_...), full cURL command, or .env snippet..."
+            className="w-full bg-[#FAF9F5] border border-[#E6E5DE] focus:border-[#1C1B18] focus:bg-[#FFFFFF] rounded-2xl p-4 text-xs text-[#1C1B18] placeholder-[#9E9C92] outline-none font-mono transition-all leading-relaxed"
+          />
 
-            {/* Category */}
-            <div>
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                Category
-              </label>
-              <select
-                value={category}
-                onChange={e => setCategory(e.target.value as any)}
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition cursor-pointer"
-              >
-                <option value="ai">AI Model Provider</option>
-                <option value="data">Data / News API Feed</option>
-                <option value="other">Webhook / Other Service</option>
-              </select>
-            </div>
-
-            {/* Protocol */}
-            <div>
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                Protocol / Format
-              </label>
-              <select
-                value={providerType}
-                onChange={e => setProviderType(e.target.value as any)}
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition cursor-pointer"
-              >
-                <option value="openai-compatible">OpenAI-Compatible (Bearer Token)</option>
-                <option value="gemini-v1">Google Gemini (Query Param Key)</option>
-                <option value="anthropic-messages">Anthropic Messages Protocol</option>
-                <option value="header-auth">Custom Header Auth (X-Api-Key, etc.)</option>
-                <option value="generic-rest">Universal REST JSON</option>
-              </select>
-            </div>
-
-            {/* Base URL */}
-            <div className="md:col-span-2">
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                Base URL / Endpoint
-              </label>
-              <input
-                type="text"
-                value={baseUrl}
-                onChange={e => setBaseUrl(e.target.value)}
-                placeholder="e.g. https://api.deepseek.com/v1 or https://api.polygon.io"
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition"
-              />
-            </div>
-
-            {/* Model ID */}
-            <div>
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                Model Identifier (Optional)
-              </label>
-              <input
-                type="text"
-                value={modelId}
-                onChange={e => setModelId(e.target.value)}
-                placeholder="e.g. deepseek-chat, llama-3.3"
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition"
-              />
-            </div>
-
-            {/* Secret API Key */}
-            <div className="md:col-span-2">
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                API Key / Secret Token *
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                placeholder="sk-..., AIzaSy..., or custom auth token"
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition"
-              />
-            </div>
-
-            {/* Custom Header Name */}
-            <div>
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-[#68665E] mb-1.5">
-                Auth Header Name
-              </label>
-              <input
-                type="text"
-                value={headerName}
-                onChange={e => setHeaderName(e.target.value)}
-                placeholder="Authorization (or X-Api-Key)"
-                className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-3.5 py-2.5 text-[#1C1B18] focus:outline-none focus:border-[#1C1B18] font-mono transition"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end space-x-3 pt-4 border-t border-[#E6E5DE]">
+          {smartInput && (
             <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="px-4 py-2 text-xs font-medium text-[#68665E] hover:text-[#1C1B18] transition"
+              onClick={() => handleSmartInputChange('')}
+              className="absolute right-3.5 top-3.5 text-[11px] font-mono text-[#9E9C92] hover:text-[#1C1B18] transition"
             >
-              Cancel
+              Clear
             </button>
-            <button
-              type="button"
-              onClick={handleAddNewKey}
-              disabled={!name.trim() || !apiKey.trim() || isSaving}
-              className="px-5 py-2.5 rounded-xl bg-[#1C1B18] hover:bg-[#2D2D2D] disabled:opacity-40 text-white text-xs font-medium transition shadow-sm flex items-center space-x-1.5"
-            >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-              <span>Save to Firestore</span>
-            </button>
-          </div>
-        </section>
-      )}
+          )}
+        </div>
 
-      {/* List of Registered API Keys */}
+        {/* --- SINGLE KEY DETECTION CARD --- */}
+        {activeDetected && detectedList.length === 1 && (
+          <div className="p-5 rounded-2xl bg-[#FAF9F5] border border-[#E6E5DE] space-y-4 animate-fadeIn">
+            {/* Detection Header */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center border ${
+                  activeDetected.isIdentified
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}>
+                  {activeDetected.isIdentified ? <Shield className="w-4 h-4" /> : <Server className="w-4 h-4" />}
+                </div>
+
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-bold text-[#1C1B18]">
+                      {activeDetected.name}
+                    </h3>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase border ${
+                      activeDetected.isIdentified
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
+                        : 'bg-amber-100 text-amber-900 border-amber-200'
+                    }`}>
+                      {activeDetected.isIdentified ? `${(activeDetected.confidence * 100).toFixed(0)}% Identified` : 'Universal / Custom'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-mono text-[#68665E] mt-0.5">
+                    {activeDetected.notes}
+                  </p>
+                </div>
+              </div>
+
+              {/* Masked Key Pill */}
+              <div className="text-xs font-mono bg-[#FFFFFF] px-3 py-1.5 rounded-xl border border-[#E6E5DE] text-[#1C1B18]">
+                Key: <span className="font-semibold">{activeDetected.maskedKey}</span>
+              </div>
+            </div>
+
+            {/* Inferred Parameters Grid (Editable Overrides) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#68665E] mb-1">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  className="w-full bg-[#FFFFFF] border border-[#E6E5DE] rounded-xl px-3 py-2 text-xs text-[#1C1B18] font-mono outline-none focus:border-[#1C1B18]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#68665E] mb-1">
+                  Base URL / Endpoint
+                </label>
+                <input
+                  type="text"
+                  value={editedBaseUrl}
+                  onChange={(e) => setEditedBaseUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full bg-[#FFFFFF] border border-[#E6E5DE] rounded-xl px-3 py-2 text-xs text-[#1C1B18] font-mono outline-none focus:border-[#1C1B18]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#68665E] mb-1">
+                  Default Model
+                </label>
+                <input
+                  type="text"
+                  value={editedModelId}
+                  onChange={(e) => setEditedModelId(e.target.value)}
+                  placeholder="e.g. gpt-4o, llama-3.3"
+                  className="w-full bg-[#FFFFFF] border border-[#E6E5DE] rounded-xl px-3 py-2 text-xs text-[#1C1B18] font-mono outline-none focus:border-[#1C1B18]"
+                />
+              </div>
+            </div>
+
+            {/* Live Probe Result Banner */}
+            {probeResult && (
+              <div className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs font-mono ${
+                probeResult.valid
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  : 'bg-rose-50 border-rose-200 text-rose-900'
+              }`}>
+                <div className="flex items-center space-x-2">
+                  {probeResult.valid ? <CheckCircle2 className="w-4 h-4 text-emerald-700" /> : <AlertCircle className="w-4 h-4 text-rose-700" />}
+                  <span>{probeResult.message} ({probeResult.latencyMs}ms)</span>
+                </div>
+
+                {probeResult.availableModels && probeResult.availableModels.length > 0 && (
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] text-[#68665E]">Discovered:</span>
+                    <select
+                      value={editedModelId}
+                      onChange={(e) => setEditedModelId(e.target.value)}
+                      className="bg-[#FFFFFF] border border-[#E6E5DE] rounded-lg px-2 py-1 text-xs text-[#1C1B18] font-mono outline-none cursor-pointer"
+                    >
+                      {probeResult.availableModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={handleProbeDetected}
+                disabled={isProbingDetected}
+                className="px-4 py-2 rounded-xl bg-[#FFFFFF] border border-[#E6E5DE] hover:border-[#1C1B18] disabled:opacity-50 text-xs font-medium text-[#1C1B18] flex items-center space-x-2 transition cursor-pointer"
+              >
+                {isProbingDetected ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                <span>Probe & Benchmark</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRecordDetected}
+                disabled={isSaving}
+                className="px-5 py-2 rounded-xl bg-[#1C1B18] hover:bg-[#2D2D2D] disabled:opacity-50 text-white text-xs font-medium flex items-center space-x-2 transition shadow-sm cursor-pointer"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>Record to Vault</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* --- BATCH MULTI-KEY DETECTION REVIEW --- */}
+        {detectedList.length > 1 && (
+          <div className="p-5 rounded-2xl bg-[#FAF9F5] border border-[#E6E5DE] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-[#E6E5DE] pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#1C1B18]">
+                  Batch Detection: {detectedList.length} Keys Identified
+                </h3>
+                <p className="text-xs text-[#68665E]">
+                  Multi-line config detected. Review parsed entries below.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRecordAllBatch}
+                disabled={isSaving}
+                className="px-5 py-2 rounded-xl bg-[#1C1B18] hover:bg-[#2D2D2D] disabled:opacity-50 text-white text-xs font-medium flex items-center space-x-2 transition shadow-sm cursor-pointer"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>Record All ({detectedList.length} Keys)</span>
+              </button>
+            </div>
+
+            <div className="divide-y divide-[#E6E5DE] bg-[#FFFFFF] border border-[#E6E5DE] rounded-xl overflow-hidden">
+              {detectedList.map((item, idx) => (
+                <div key={idx} className="p-3 text-xs flex items-center justify-between font-mono">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-semibold text-[#1C1B18]">{item.name}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-[#FAF9F5] border border-[#E6E5DE] text-[#68665E]">
+                      {item.category.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <span className="text-[#68665E]">{item.maskedKey}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* --- RECORDED KEY VAULT --- */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-mono uppercase tracking-wider text-[#68665E]">
-            Registered APIs ({entries.length})
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold text-[#1C1B18]">
+              Recorded Credentials & Endpoint Vault
+            </h2>
+            <p className="text-xs text-[#68665E]">
+              100% persisted in Cloud Firestore. Masked for zero screen leakage.
+            </p>
+          </div>
+
           {saveSuccess && (
-            <span className="text-xs font-mono text-emerald-700 flex items-center space-x-1 animate-fadeIn">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Synced to Cloud Firestore</span>
+            <span className="text-xs font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl flex items-center space-x-1.5 animate-fadeIn">
+              <Check className="w-3.5 h-3.5" />
+              <span>Saved to Firestore</span>
             </span>
           )}
         </div>
@@ -398,122 +539,146 @@ export const ApiKeysPage: React.FC<ApiKeysPageProps> = ({ keys, onSaveKeys }) =>
         {entries.length === 0 ? (
           <div className="p-12 text-center bg-[#FFFFFF] border border-[#E6E5DE] rounded-2xl space-y-3">
             <Key className="w-8 h-8 text-[#9E9C92] mx-auto" />
-            <h3 className="text-sm font-semibold text-[#1C1B18]">No API Keys Registered Yet</h3>
-            <p className="text-xs text-[#68665E] max-w-md mx-auto">
-              Add your Google Gemini, Groq, Finnhub, OpenAI, or any custom API endpoint above. All keys are encrypted and stored in Cloud Firestore.
+            <h3 className="text-sm font-semibold text-[#1C1B18]">Vault Empty</h3>
+            <p className="text-xs text-[#68665E] max-w-sm mx-auto">
+              Paste any API key, cURL snippet, or .env line in the smart ingestion bar above to automatically detect, probe, and record credentials.
             </p>
-            <button
-              onClick={() => {
-                setShowAddForm(true);
-                applyPreset('gemini');
-              }}
-              className="mt-2 px-4 py-2 rounded-xl bg-[#1C1B18] text-white text-xs font-medium inline-flex items-center space-x-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add First Key (e.g. Gemini)</span>
-            </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {entries.map(entry => {
-              const isShowing = showKeyMap[entry.id];
+          <div className="space-y-3">
+            {entries.map((entry) => {
+              const isRevealed = showKeyMap[entry.id];
               const isTesting = testingId === entry.id;
-              const test = testResults[entry.id];
+              const testRes = testResults[entry.id];
+              const health = testRes?.healthStatus || entry.healthStatus || 'untested';
 
               return (
                 <div
                   key={entry.id}
-                  className={`p-4 rounded-2xl bg-[#FFFFFF] border transition-all ${
-                    entry.enabled ? 'border-[#E6E5DE]' : 'border-[#E6E5DE] opacity-60'
+                  className={`p-5 rounded-2xl border transition-all bg-[#FFFFFF] ${
+                    entry.enabled ? 'border-[#E6E5DE] shadow-xs' : 'border-[#E6E5DE] opacity-60 bg-[#FAF9F5]'
                   }`}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm font-semibold text-[#1C1B18]">{entry.name}</span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#FAF9F5] border border-[#E6E5DE] text-[#68665E] uppercase">
-                          {entry.category}
-                        </span>
-                        {entry.modelId && (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-900 border border-amber-500/20">
-                            {entry.modelId}
-                          </span>
-                        )}
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    {/* Left: Info & Health */}
+                    <div className="flex items-start space-x-3">
+                      <div className="w-9 h-9 rounded-xl bg-[#FAF9F5] border border-[#E6E5DE] flex items-center justify-center text-[#1C1B18] mt-0.5">
+                        {entry.category === 'ai' ? <Cpu className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
                       </div>
 
-                      {entry.baseUrl && (
-                        <p className="text-[11px] font-mono text-[#68665E] truncate max-w-md">
-                          {entry.baseUrl}
-                        </p>
-                      )}
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h3 className="text-sm font-bold text-[#1C1B18]">{entry.name}</h3>
+                          <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${
+                            health === 'healthy'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : health === 'rate_limited'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : health === 'unauthorized' || health === 'degraded'
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : 'bg-[#FAF9F5] text-[#68665E] border-[#E6E5DE]'
+                          }`}>
+                            {health === 'healthy' && entry.lastPingLatencyMs
+                              ? `HEALTHY (${entry.lastPingLatencyMs}ms)`
+                              : health.replace('_', ' ')}
+                          </span>
+
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#FAF9F5] border border-[#E6E5DE] text-[#68665E]">
+                            {entry.category.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {entry.baseUrl && (
+                          <p className="text-[11px] font-mono text-[#68665E] mt-0.5 truncate max-w-md">
+                            {entry.baseUrl}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
+                    {/* Right: Actions */}
                     <div className="flex items-center space-x-2">
-                      {/* Test Connection Button */}
+                      {/* Re-probe Button */}
                       <button
-                        onClick={() => handleTestKey(entry)}
+                        onClick={() => handleReProbeVaultKey(entry)}
                         disabled={isTesting}
-                        className="px-3 py-1.5 rounded-xl bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-xs font-medium text-[#1C1B18] flex items-center space-x-1.5 transition cursor-pointer"
-                        title="Ping endpoint to verify connectivity and latency"
+                        className="px-3 py-1.5 rounded-xl bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-xs font-mono text-[#1C1B18] flex items-center space-x-1.5 transition cursor-pointer"
+                        title="Re-probe endpoint & test health"
                       >
-                        {isTesting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1C1B18]" />
-                            <span className="font-mono text-[11px]">Testing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Radio className="w-3 h-3 text-[#1C1B18]" />
-                            <span className="font-mono text-[11px]">Test Ping</span>
-                          </>
-                        )}
+                        {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                        <span>{isTesting ? 'Pinging...' : 'Probe'}</span>
                       </button>
 
                       {/* Enable/Disable Toggle */}
                       <button
                         onClick={() => handleToggleEnable(entry.id)}
-                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-mono transition cursor-pointer ${
+                        className={`text-xs font-mono px-2.5 py-1.5 rounded-xl border transition ${
                           entry.enabled
-                            ? 'bg-emerald-500/10 text-emerald-800 border border-emerald-500/20'
-                            : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                            ? 'bg-[#1C1B18] text-white border-[#1C1B18]'
+                            : 'bg-[#FAF9F5] text-[#68665E] border-[#E6E5DE]'
                         }`}
                       >
-                        {entry.enabled ? 'Active' : 'Disabled'}
+                        {entry.enabled ? 'Enabled' : 'Disabled'}
                       </button>
 
                       {/* Delete */}
                       <button
                         onClick={() => handleDelete(entry.id)}
-                        className="p-1.5 rounded-lg text-[#9E9C92] hover:text-rose-600 hover:bg-rose-50 transition"
-                        title="Delete Key"
+                        className="p-2 rounded-xl text-[#9E9C92] hover:text-rose-600 hover:bg-rose-50 transition"
+                        title="Delete from Firestore Vault"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
 
-                  {/* Masked Key Display */}
-                  <div className="mt-3 pt-3 border-t border-[#F4F3EE] flex items-center justify-between text-xs font-mono text-[#68665E]">
+                  {/* Masked Key Display & Model Selection Bar */}
+                  <div className="mt-4 pt-3 border-t border-[#E6E5DE] flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
                     <div className="flex items-center space-x-2">
-                      <span className="text-[11px] uppercase tracking-wider text-[#9E9C92]">Key:</span>
-                      <span className="text-[#1C1B18]">
-                        {isShowing ? entry.apiKey : `${entry.apiKey.slice(0, 4)}••••••••••••••••${entry.apiKey.slice(-4)}`}
+                      <span className="text-[#9E9C92]">Key:</span>
+                      <span className="font-semibold text-[#1C1B18]">
+                        {isRevealed ? entry.apiKey : (entry.maskedKey || maskApiKey(entry.apiKey))}
                       </span>
                       <button
+                        type="button"
                         onClick={() => toggleShowKey(entry.id)}
-                        className="text-[#9E9C92] hover:text-[#1C1B18] transition p-0.5"
+                        className="p-1 text-[#9E9C92] hover:text-[#1C1B18] transition"
+                        title={isRevealed ? "Mask secret" : "Reveal secret"}
                       >
-                        {isShowing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                     </div>
 
-                    {test && (
-                      <div className={`flex items-center space-x-1.5 text-[11px] ${test.valid ? 'text-emerald-700' : 'text-rose-600'}`}>
-                        {test.valid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                        <span>{test.message} {test.latency ? `(${test.latency}ms)` : ''}</span>
-                      </div>
-                    )}
+                    {/* Discovered / Selected Model */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[#9E9C92]">Model:</span>
+                      {entry.availableModels && entry.availableModels.length > 0 ? (
+                        <select
+                          value={entry.modelId || entry.availableModels[0]}
+                          onChange={(e) => handleSelectModel(entry.id, e.target.value)}
+                          className="bg-[#FAF9F5] border border-[#E6E5DE] rounded-lg px-2 py-1 text-xs text-[#1C1B18] outline-none cursor-pointer"
+                        >
+                          {entry.availableModels.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-[#1C1B18] font-semibold">
+                          {entry.modelId || 'default'}
+                        </span>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Test Result Feedback */}
+                  {testRes && (
+                    <div className={`mt-3 p-2.5 rounded-xl border text-[11px] font-mono flex items-center space-x-2 ${
+                      testRes.valid ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}>
+                      {testRes.valid ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" /> : <AlertCircle className="w-3.5 h-3.5 text-rose-700" />}
+                      <span>{testRes.message} {testRes.latency ? `(${testRes.latency}ms)` : ''}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -523,3 +688,5 @@ export const ApiKeysPage: React.FC<ApiKeysPageProps> = ({ keys, onSaveKeys }) =>
     </div>
   );
 };
+
+export default ApiKeysPage;
