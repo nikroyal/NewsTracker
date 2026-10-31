@@ -1,0 +1,197 @@
+[project]
+name = "financetoolkit"
+version = "2.3.0"
+description = "Transparent and Efficient Financial Analysis"
+license = {text = "MIT"}
+authors = [
+    { name = "Jeroen Bouma" }
+]
+readme = "README.md"
+homepage = "https://www.jeroenbouma.com/projects/financetoolkit"
+repository = "https://github.com/JerBouma/FinanceToolkit"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+keywords = [
+    "Finance",
+    "Toolkit",
+    "Financial",
+    "Analysis",
+    "Fundamental",
+    "Technical",
+    "Quantitative",
+    "Database",
+    "Equities",
+    "Currencies",
+    "Economics",
+    "ETFs",
+    "Funds",
+    "Indices",
+    "Moneymarkets",
+    "Commodities",
+    "Options"
+]
+requires-python = ">=3.11, <3.16"
+dependencies = [
+    "pandas>=3.0",
+    "requests>=2.32",
+    "yfinance",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    "pyyaml>=6.0",
+    "python-calamine>=0.3.0 ; python_full_version < '3.15'",
+    "numpy>=1.26",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+econometrics = [
+    "statsmodels>=0.14",
+    "linearmodels>=6.0",
+]
+mcp = [
+    "financetoolkit[econometrics]",
+    "fastmcp>=3.4.2",
+    "mcp[cli]>=1.27.0,<2",
+    "tabulate>=0.9.0",
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+financetoolkit-mcp = "financetoolkit.mcp_server.mcp_controller:main"
+financetoolkit-mcp-inspector = "financetoolkit.mcp_server.mcp_controller:inspector"
+financetoolkit-mcp-setup = "financetoolkit.mcp_server.mcp_controller:setup"
+
+[tool.mcp]
+mcp-name = "io.github.JerBouma/financetoolkit"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ipykernel>=6.29",
+    "black[jupyter]>=26.3.1",
+    "codespell>=2.4",
+    "pytest-mock>=3.14",
+    "pytest-recording>=0.13",
+    "pytest-cov>=6.1",
+    "pytest-timeout>=2.3",
+    "types-pyyaml>=6.0",
+    "types-requests>=2.32",
+    "ruff>=0.13.2",
+    "httpx2>=0.28",
+    "financetoolkit[mcp]",
+    "financetoolkit[econometrics]",
+    "arch>=7.0",
+    "jupyter>=1.1.1",
+    "nbconvert>=7.17.1",
+    "matplotlib>=3.11.1",
+    "seaborn>=0.13.2",
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.sources]
+financetoolkit = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["financetoolkit"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "financetoolkit/**",
+]
+
+[tool.black]
+# Current formatting set to Python 3.13
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 122
+lint.select = [
+    "E",   # E: pycodestyle error checks (style errors)
+    "W",   # W: pycodestyle warning checks (style warnings)
+    "F",   # F: pyflakes checks (possible logic errors, undefined names)
+    "Q",   # Q: quote-related checks (enforce consistent quoting rules)
+    "W",   # W: duplicate W entry preserved from original configuration
+    "S",   # S: security-related checks (bandit-style security rules)
+    "UP",  # UP: pyupgrade / modernization fixers and related rules
+    "I",   # I: import-related checks (ordering, unused imports)
+    "PD",  # PD: plugin-specific or project-defined diagnostics
+    "SIM", # SIM: similarity/simplification suggestions (refactoring hints)
+    "PLC", # PLC: complexity-related checks (long/complex functions)
+    "PLE", # PLE: plugin linting errors (external plugin category)
+    "PLR", # PLR: plugin linting rules (external plugin category)
+    "PLW", # PLW: plugin linting warnings (external plugin category)
+]
+
+lint.ignore = [
+    "S105",  # Bandit: possible hardcoded credential/secret
+    "S106",  # Bandit: insecure usage pattern (e.g., weak crypto or risky API)
+    "S107",  # Bandit: use of eval/exec or other code-injection risk
+    "PLR0913",  # Pylint-refactor: too many arguments in function/method
+    "PLR0917",  # Pylint-refactor: too many positional arguments in function/method
+    "PLR0912",  # Pylint-refactor: too many branches in function/method
+    "PLR0911",  # Pylint-refactor: too many return statements in function/method
+    "PLR0915",  # Pylint-refactor: function/method too many statements (too complex)
+    "PD010",  # Docstring/plugin: docstring-related diagnostic (see plugin docs)
+    "PD013",  # Docstring/plugin: docstring style/content diagnostic (see plugin docs)
+    "S310",  # Bandit: insecure deserialization or risky module usage
+    "S301",  # Bandit: insecure crypto/hash or deprecated API usage
+    "S101",  # Bandit: use of assert (assert removed in optimized runs)
+]
+
+exclude = ["conftest.py"]
+
+[tool.ruff.lint.per-file-ignores]
+"financetoolkit/mcp_server/auth_model.py" = ["E501"]
+"tests/**" = ["PLR2004", "PLC0415"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-wrap-aliases = true
+
+[tool.lint.isort]
+profile = "black"
+line_length = 122
+skip_gitignore = true
+combine_as_imports = true
+
+[tool.ty.src]
+# Mirror the other linters: the package is what is checked, not the tests
+# or the environment.
+include = ["financetoolkit"]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+invalid-argument-type = "ignore"
+invalid-return-type = "ignore"
+invalid-assignment = "ignore"
+unresolved-attribute = "ignore"
+no-matching-overload = "ignore"
+
+[tool.codespell]
+ignore-words-list = 'te,hsi,amplitud,nam,tha,plaform,ine,daa,pring,pezier,trough,zar,ons,bund,aer,ois,ihs,hims,ist,sie,acn,sive'
+skip = '*.json,./.git,pyproject.toml,poetry.lock'
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::pytest.PytestAssertRewriteWarning:",
+]

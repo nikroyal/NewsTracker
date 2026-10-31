@@ -1,0 +1,748 @@
+# ruff: noqa
+
+import csv
+import io
+import json
+import math
+import os
+import pathlib
+from typing import Any
+
+import pandas as pd
+import pytest
+from _pytest.capture import MultiCapture, SysCapture
+from _pytest.config.argparsing import Parser
+from _pytest.fixtures import SubRequest
+from _pytest.mark.structures import Mark
+
+# External data is cached by default, which the tests switch off: they must neither write
+# to the developer's own cache nor be served one test's data in another. The tests of the
+# cache itself create their own, in a temporary location.
+os.environ["FINANCE_TOOLKIT_CACHE_ENABLED"] = "0"
+
+""""
+Credits go out to the original author of this code snippet:
+
+    OpenBB-finance/OpenBB Terminal
+    https://github.com/OpenBB-finance
+
+This is a modified version of the original code snippet
+to fit the needs of the financetoolkit.
+"""
+
+
+class LiveRecorder:
+    """Captures function results in live mode without comparing to stored files."""
+
+    def capture(self, captured: Any, strip: bool = False, **kwargs) -> None:
+        assert captured is not None
+
+    def capture_list(self, captured_list: list[Any], strip: bool = False) -> None:
+        for captured in captured_list:
+            self.capture(captured)
+
+
+DISPLAY_LIMIT: int = 500
+EXTENSIONS_ALLOWED: list[str] = ["csv", "json", "txt"]
+EXTENSIONS_MATCHING: dict[str, list[type]] = {
+    "csv": [pd.DataFrame, pd.Series],
+    "json": [bool, dict, float, int, list, tuple],
+    "txt": [str],
+}
+
+# pylint: skip-file
+
+
+class Record:
+    @staticmethod
+    def _values_approx_equal(a: Any, b: Any, rel_tol: float = 1e-9) -> bool:
+        """Recursively compare two JSON-parsed values using approximate
+        comparison for floats.  Everything else is compared by equality."""
+        if isinstance(a, float) and isinstance(b, float):
+            return math.isclose(a, b, rel_tol=rel_tol)
+        if isinstance(a, list) and isinstance(b, list):
+            if len(a) != len(b):
+                return False
+            return all(
+                Record._values_approx_equal(x, y, rel_tol=rel_tol) for x, y in zip(a, b)
+            )
+        if isinstance(a, dict) and isinstance(b, dict):
+            if a.keys() != b.keys():
+                return False
+            return all(
+                Record._values_approx_equal(a[k], b[k], rel_tol=rel_tol) for k in a
+            )
+        return a == b
+
+    @staticmethod
+    def _json_strings_approx_equal(
+        recorded: str, captured: str, rel_tol: float = 1e-9
+    ) -> bool:
+        """Parse two JSON strings and compare with float tolerance."""
+        try:
+            return Record._values_approx_equal(
+                json.loads(recorded), json.loads(captured), rel_tol=rel_tol
+            )
+        except (json.JSONDecodeError, ValueError):
+            return recorded == captured
+
+    @staticmethod
+    def _numbers_approx_equal(
+        recorded: str, captured: str, rel_tol: float = 1e-5
+    ) -> bool:
+        """Compare two numeric cells to within one unit of the last digit the record
+        actually stores, so a value written as 0.3754 tolerates 0.3753, while a full
+        precision value is still held to `rel_tol`. Anything that is not a number is
+        not equal unless it matched as a string already.
+
+        `rel_tol` is deliberately looser than the 1e-9 used for JSON: the values that
+        drift the most are the iterative ones (ARIMA forecasts, GARCH-family solver
+        output), where a different libm walks to a slightly different optimum and the
+        gap reaches a few parts per million. A genuine formula change moves a value by
+        far more than that."""
+        try:
+            recorded_value = float(recorded)
+            captured_value = float(captured)
+        except ValueError:
+            return False
+
+        if math.isnan(recorded_value) and math.isnan(captured_value):
+            return True
+
+        _, _, decimals = recorded.partition(".")
+
+        return math.isclose(
+            recorded_value,
+            captured_value,
+            rel_tol=rel_tol,
+            abs_tol=10 ** -len(decimals) if decimals else 0.0,
+        )
+
+    @staticmethod
+    def _csv_strings_approx_equal(recorded: str, captured: str) -> bool:
+        """Parse two CSV strings and compare them cell by cell, with float tolerance.
+        The shape, the headers and every non-numeric cell still have to match exactly;
+        only the numbers are allowed to drift, which is what differing platforms (and
+        therefore differing BLAS and libm implementations) actually produce."""
+        recorded_rows = list(csv.reader(io.StringIO(recorded)))
+        captured_rows = list(csv.reader(io.StringIO(captured)))
+
+        if len(recorded_rows) != len(captured_rows):
+            return False
+
+        for recorded_row, captured_row in zip(recorded_rows, captured_rows):
+            if len(recorded_row) != len(captured_row):
+                return False
+
+            for recorded_cell, captured_cell in zip(recorded_row, captured_row):
+                if recorded_cell == captured_cell:
+                    continue
+                if not Record._numbers_approx_equal(recorded_cell, captured_cell):
+                    return False
+
+        return True
+
+    @staticmethod
+    def extract_string(data: Any, **kwargs) -> str:
+        if isinstance(data, tuple(EXTENSIONS_MATCHING["txt"])):
+            string_value = data
+        elif isinstance(data, tuple(EXTENSIONS_MATCHING["csv"])):
+            string_value = data.to_csv(
+                encoding="utf-8",
+                lineterminator="\n",
+                **kwargs,
+            )
+        elif isinstance(data, tuple(EXTENSIONS_MATCHING["json"])):
+            string_value = json.dumps(data, **kwargs)
+        else:
+            raise AttributeError(f"Unsupported type : {type(data)}")
+
+        return string_value.replace("\r\n", "\n")
+
+    @staticmethod
+    def load_string(path: str) -> str | None:
+        if os.path.exists(path):
+            with open(
+                file=path,
+                encoding="utf-8",
+                newline="\n",
+            ) as f:
+                return f.read()
+        else:
+            return None
+
+    @property
+    def captured(self) -> str:
+        return self.__captured
+
+    @property
+    def strip(self) -> bool:
+        return self.__strip
+
+    @property
+    def record_changed(self) -> bool:
+        if self.__recorded is None:
+            return True
+
+        recorded = self.__recorded
+        captured = self.__captured
+
+        if self.__strip:
+            recorded = recorded.strip()
+            captured = captured.strip()
+
+        if recorded == captured:
+            return False
+
+        # JSON floats are compared approximately, so repr differences do not fail.
+        if self.__record_path.endswith(".json"):
+            return not self._json_strings_approx_equal(recorded, captured)
+
+        # Same for CSV, where the recorded values are the ones most exposed to the
+        # float noise that differs between the platform that recorded them and the
+        # platform running the test.
+        if self.__record_path.endswith(".csv"):
+            return not self._csv_strings_approx_equal(recorded, captured)
+
+        return True
+
+    @property
+    def record_exists(self) -> bool:
+        return self.__recorded is not None
+
+    @property
+    def record_path(self) -> str:
+        return self.__record_path
+
+    @property
+    def recorded(self) -> str | None:
+        return self.__recorded
+
+    def recorded_reload(self):
+        record_path = self.__record_path
+        self.__recorded = self.load_string(path=record_path)
+
+    def __init__(
+        self, captured: Any, record_path: str, strip: bool = False, **kwargs
+    ) -> None:
+        self.__captured = self.extract_string(data=captured, **kwargs)
+        self.__record_path = record_path
+        self.__strip = strip
+
+        self.__recorded = self.load_string(path=record_path)
+
+    def persist(self):
+        record_path = self.__record_path
+        captured = self.__captured
+        record_dir_name = os.path.dirname(record_path)
+
+        # CREATE FOLDER
+        if not os.path.exists(record_dir_name):
+            pathlib.Path(record_dir_name).mkdir(parents=True, exist_ok=True)
+
+        # SAVE FILE
+        with open(
+            file=record_path,
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+        ) as f:
+            f.write(captured)
+
+        # RELOAD RECORDED CONTENT
+        self.recorded_reload()
+
+
+class PathTemplate:
+    @staticmethod
+    def find_extension(data: Any):
+        for extension, type_list in EXTENSIONS_MATCHING.items():
+            if isinstance(data, tuple(type_list)):
+                return extension
+        raise Exception(f"No extension found for this type : {type(data)}")
+
+    def __init__(self, module_dir: str, module_name: str, test_name: str) -> None:
+        self.__module_dir = module_dir
+        self.__module_name = module_name
+        self.__test_name = test_name
+
+    def build_path_by_extension(self, extension: str, index: int = 0):
+        if extension not in EXTENSIONS_ALLOWED:
+            raise Exception(f"Unsupported extension : {extension}")
+
+        path = os.path.join(
+            self.__module_dir, extension, self.__module_name, self.__test_name
+        )
+        if index:
+            path += "_" + str(index)
+        path += "."
+        path += extension
+
+        return path
+
+    def build_path_by_data(self, data: Any, index: int = 0):
+        extension = self.find_extension(data=data)
+        return self.build_path_by_extension(extension=extension, index=index)
+
+
+class Recorder:
+    @property
+    def display_limit(self) -> int:
+        return self.__display_limit
+
+    @display_limit.setter
+    def display_limit(self, display_limit: int):
+        self.__display_limit = display_limit
+
+    @property
+    def rewrite_expected(self) -> bool:
+        return self.__rewrite_expected
+
+    @rewrite_expected.setter
+    def rewrite_expected(self, rewrite_expected: bool):
+        self.__rewrite_expected = rewrite_expected
+
+    @property
+    def path_template(self) -> PathTemplate:
+        return self.__path_template
+
+    @property
+    def record_mode(self) -> str:
+        return self.__record_mode
+
+    @record_mode.setter
+    def record_mode(self, record_mode: str):
+        self.__record_mode = record_mode
+
+    def __init__(
+        self,
+        path_template: PathTemplate,
+        record_mode: str,
+        display_limit: int = DISPLAY_LIMIT,
+        rewrite_expected: bool = False,
+        rewrite_failing: bool = False,
+    ) -> None:
+        self.__path_template = path_template
+        self.__record_mode = record_mode
+        self.__display_limit = display_limit
+        self.__rewrite_expected = rewrite_expected
+        self.__rewrite_failing = rewrite_failing
+
+        self.__record_list: list[Record] = list()
+
+    def capture(self, captured: Any, strip: bool = False, **kwargs):
+        record_list = self.__record_list
+        record_path = self.__path_template.build_path_by_data(
+            data=captured, index=len(record_list)
+        )
+        record = Record(
+            captured=captured, record_path=record_path, strip=strip, **kwargs
+        )
+        self.__record_list.append(record)
+
+    def capture_list(self, captured_list: list[Any], strip: bool = False):
+        for captured in captured_list:
+            self.capture(captured=captured, strip=strip)
+
+    def assert_equal(self):
+        record_list = self.__record_list
+
+        for record in record_list:
+            if record.record_changed:
+                raise AssertionError(
+                    "Change detected\n"
+                    f"Record    : {record.record_path}\n"
+                    f"Expected  : {record.recorded[:self.display_limit]}\n"
+                    f"Actual    : {record.captured[:self.display_limit]}\n"
+                )
+
+    def assert_in_list(self, in_list: list[str]):
+        record_list = self.__record_list
+
+        for record in record_list:
+            for string_value in in_list:
+                assert string_value in record.captured
+
+    def persist(self):
+        record_list = self.__record_list
+        record_mode = self.__record_mode
+        rewrite_expected = self.__rewrite_expected
+
+        for record in record_list:
+            if record_mode == "all":
+                save = True
+            elif record_mode == "new_episodes":
+                save = record.record_changed
+            elif record_mode == "none":
+                if not record.record_exists:
+                    raise Exception("You are using `record-mode=none`.")
+
+                save = False
+            elif record_mode == "once":
+                save = not record.record_exists
+            elif record_mode == "rewrite":
+                save = True
+            else:
+                raise Exception(f"Unknown `record-mode` : {record_mode}")
+
+            if (
+                save
+                or rewrite_expected
+                or (self.__rewrite_failing and record.record_changed)
+            ):
+                record.persist()
+
+
+def build_path_by_extension(
+    request: SubRequest, extension: str, create_folder: bool = False
+) -> str:
+    # SETUP PATH TEMPLATE
+    module_dir = request.node.fspath.dirname
+    module_name = request.node.fspath.purebasename
+    test_name = request.node.name
+    path_template = PathTemplate(
+        module_dir=module_dir, module_name=module_name, test_name=test_name
+    )
+
+    # BUILD PATH
+    path = path_template.build_path_by_extension(extension)
+
+    # CREATE FOLDER
+    if create_folder:
+        dir_name = os.path.dirname(path)
+        if not os.path.exists(dir_name):
+            dir_name = os.path.dirname(path)
+            pathlib.Path(dir_name).mkdir(parents=True, exist_ok=True)
+
+    return path
+
+
+def merge_markers_kwargs(markers: list[Mark]) -> dict[str, Any]:
+    """Merge all kwargs into a single dictionary."""
+    kwargs: dict[str, Any] = dict()
+    for marker in reversed(markers):
+        kwargs.update(marker.kwargs)
+    return kwargs
+
+
+def record_stdout_format_kwargs(
+    test_name: str, record_mode: str, record_stdout_markers: list[Mark]
+) -> dict[str, Any]:
+    kwargs = merge_markers_kwargs(record_stdout_markers)
+
+    formatted_fields = dict()
+    formatted_fields["assert_in_list"] = kwargs.get("assert_in_list", list())
+    formatted_fields["display_limit"] = kwargs.get("display_limit", DISPLAY_LIMIT)
+    formatted_fields["record_mode"] = kwargs.get("record_mode", record_mode)
+    formatted_fields["record_name"] = kwargs.get("record_name", test_name)
+    formatted_fields["save_record"] = kwargs.get("save_record", True)
+    formatted_fields["strip"] = kwargs.get("strip", True)
+
+    return formatted_fields
+
+
+def pytest_addoption(parser: Parser):
+    parser.addoption(
+        "--forecast",
+        action="store_true",
+        help="To run tests with the marker : @pytest.mark.forecast",
+    )
+    parser.addoption(
+        "--optimization",
+        action="store_true",
+        help="To run tests with the marker : @pytest.mark.optimization",
+    )
+    parser.addoption(
+        "--session",
+        action="store_true",
+        help="To run tests with the marker : @pytest.mark.session",
+    )
+    parser.addoption(
+        "--rewrite-expected",
+        action="store_true",
+        help="To force `record_stdout` and `recorder` to rewrite all files.",
+    )
+    parser.addoption(
+        "--rewrite-failing",
+        action="store_true",
+        help=(
+            "To make `recorder` rewrite only the records that fail comparison, "
+            "leaving records that still match (within float tolerance) untouched. "
+            "This is the safe way to regenerate recordings after a behavioural "
+            "change: `--rewrite-expected` also rewrites unrelated files whose "
+            "last digits drift between platforms."
+        ),
+    )
+    parser.addoption(
+        "--autodoc",
+        action="store_true",
+        default=False,
+        help="run auto documentation tests",
+    )
+    parser.addoption(
+        "--live",
+        action="store_true",
+        default=False,
+        help="Run tests using live data from APIs instead of pickle files.",
+    )
+
+
+@pytest.fixture(scope="session")  # type: ignore
+def rewrite_expected(request: SubRequest) -> bool:
+    """Force rewriting of all expected data by : `record_stdout` and `recorder`."""
+    return request.config.getoption("--rewrite-expected")
+
+
+@pytest.fixture(scope="session")  # type: ignore
+def rewrite_failing(request: SubRequest) -> bool:
+    """Make `recorder` rewrite only the records that fail comparison."""
+    return request.config.getoption("--rewrite-failing")
+
+
+@pytest.fixture(scope="session")
+def live_mode(request: SubRequest) -> bool:
+    """Run tests with live API data instead of pickle files."""
+    return request.config.getoption("--live")
+
+
+@pytest.fixture
+def default_csv_path(request: SubRequest) -> str:
+    return build_path_by_extension(request=request, extension="csv", create_folder=True)
+
+
+@pytest.fixture
+def default_txt_path(request: SubRequest) -> str:
+    return build_path_by_extension(request=request, extension="txt", create_folder=True)
+
+
+@pytest.fixture
+def default_json_path(request: SubRequest) -> str:
+    return build_path_by_extension(
+        request=request, extension="json", create_folder=True
+    )
+
+
+@pytest.fixture
+def record_stdout_markers(request: SubRequest) -> list[Mark]:
+    """All markers applied to the certain test together with cassette names associated with each marker."""
+    return list(request.node.iter_markers(name="record_stdout"))
+
+
+@pytest.fixture(autouse=True)
+def record_stdout(
+    disable_recording: bool,
+    rewrite_expected: bool,
+    record_stdout_markers: list[Mark],
+    record_mode: str,
+    request: SubRequest,
+    live_mode: bool,
+):
+    marker = request.node.get_closest_marker("record_stdout")
+
+    if disable_recording or live_mode:
+        yield None
+    elif marker:
+        # SETUP TEST DETAILS
+        module_dir = request.node.fspath.dirname
+        module_name = request.node.fspath.purebasename
+        test_name = request.node.name
+
+        # FORMAT MARKER'S KEYWORD ARGUMENTS
+        formatted_kwargs = record_stdout_format_kwargs(
+            test_name=test_name,
+            record_mode=record_mode,
+            record_stdout_markers=record_stdout_markers,
+        )
+
+        # SETUP RECORDER
+        path_template = PathTemplate(
+            module_dir=module_dir,
+            module_name=module_name,
+            test_name=formatted_kwargs["record_name"],
+        )
+        recorder = Recorder(
+            path_template=path_template,
+            record_mode=formatted_kwargs["record_mode"],
+            display_limit=formatted_kwargs["display_limit"],
+            rewrite_expected=rewrite_expected,
+        )
+
+        # CAPTURE STDOUT
+        capture = request.config.getoption("--capture")
+        if capture == "no":
+            global_capturing = MultiCapture(
+                in_=SysCapture(0), out=SysCapture(1), err=SysCapture(2)
+            )
+            global_capturing.start_capturing()
+            yield
+            recorder.capture(
+                captured=global_capturing.readouterr().out,
+                strip=formatted_kwargs["strip"],
+            )
+            global_capturing.stop_capturing()
+        else:
+            capsys = request.getfixturevalue("capsys")
+            yield
+            recorder.capture(
+                captured=capsys.readouterr().out, strip=formatted_kwargs["strip"]
+            )
+
+        # SAVE/CHECK RECORD
+        if formatted_kwargs["save_record"]:
+            recorder.persist()
+            recorder.assert_equal()
+            recorder.assert_in_list(in_list=formatted_kwargs["assert_in_list"])
+        else:
+            recorder.assert_in_list(in_list=formatted_kwargs["assert_in_list"])
+    else:
+        yield None
+
+
+@pytest.fixture
+def recorder(
+    disable_recording: bool,
+    rewrite_expected: bool,
+    rewrite_failing: bool,
+    record_mode: str,
+    request: SubRequest,
+    live_mode: bool,
+):
+    if live_mode:
+        yield LiveRecorder()
+        return
+    marker_record_stdout = request.node.get_closest_marker("record_stdout")
+    module_dir = request.node.fspath.dirname
+    module_name = request.node.fspath.purebasename
+    test_name = request.node.name
+    path_template = PathTemplate(
+        module_dir=module_dir, module_name=module_name, test_name=test_name
+    )
+    if disable_recording:
+        yield None
+    elif marker_record_stdout:
+        raise Exception(
+            "You can't combine both of these fixtures : `record_stdout marker`, `recorder`."
+        )
+    else:
+        recorder = Recorder(
+            path_template,
+            record_mode,
+            rewrite_expected=rewrite_expected,
+            rewrite_failing=rewrite_failing,
+        )
+        yield recorder
+        recorder.persist()
+        recorder.assert_equal()
+
+
+@pytest.fixture(scope="session")
+def test_toolkit(live_mode: bool):
+    """Provides a Toolkit instance with either live API data or pickle data."""
+    if live_mode:
+        import os
+
+        from financetoolkit import Toolkit
+
+        return Toolkit(
+            tickers=["AAPL", "MSFT"],
+            api_key=os.environ.get("FINANCIAL_MODELING_PREP_API_KEY", ""),
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            fred_api_key=os.environ.get("FRED_API_KEY", ""),
+        )
+
+    from financetoolkit import Toolkit
+
+    balance_dataset = pd.read_pickle("tests/datasets/balance_dataset.pickle")
+    income_dataset = pd.read_pickle("tests/datasets/income_dataset.pickle")
+    cash_dataset = pd.read_pickle("tests/datasets/cash_dataset.pickle")
+    historical = pd.read_pickle("tests/datasets/historical_dataset.pickle")
+    risk_free_rate = pd.read_pickle("tests/datasets/risk_free_rate.pickle")
+    treasury_data = pd.read_pickle("tests/datasets/treasury_data.pickle")
+
+    toolkit = Toolkit(
+        tickers=["AAPL", "MSFT"],
+        historical=historical,
+        balance=balance_dataset,
+        income=income_dataset,
+        cash=cash_dataset,
+        convert_currency=False,
+        start_date="2019-12-31",
+        end_date="2023-01-01",
+        sleep_timer=False,
+    )
+    toolkit._daily_risk_free_rate = risk_free_rate
+    toolkit._daily_treasury_data = treasury_data
+    return toolkit
+
+
+@pytest.fixture(scope="session")
+def performance_module(test_toolkit):
+    return test_toolkit.performance
+
+
+@pytest.fixture(scope="session")
+def risk_module(test_toolkit):
+    return test_toolkit.risk
+
+
+@pytest.fixture(scope="session")
+def econometrics_module(test_toolkit):
+    return test_toolkit.econometrics
+
+
+@pytest.fixture(scope="session")
+def ratios_module(test_toolkit):
+    return test_toolkit.ratios
+
+
+@pytest.fixture(scope="session")
+def technical_module(test_toolkit):
+    return test_toolkit.technicals
+
+
+@pytest.fixture(scope="session")
+def models_module(test_toolkit):
+    return test_toolkit.models
+
+
+@pytest.fixture(scope="session")
+def options_module(test_toolkit):
+    return test_toolkit.options
+
+
+@pytest.fixture(scope="session")
+def fixedincome_module():
+    from financetoolkit.fixedincome import fixedincome_controller
+
+    return fixedincome_controller.FixedIncome(
+        start_date="2020-01-01",
+        end_date="2023-12-31",
+    )
+
+
+@pytest.fixture(scope="session")
+def economics_module(live_mode):
+    # Session-scoped fixtures are set up before the autouse skip fixture in
+    # tests/economics/conftest.py, so without this guard an offline run errors
+    # during fixture setup instead of skipping.
+    if not live_mode:
+        pytest.skip("Economics tests require --live flag")
+
+    from financetoolkit.economics import economics_controller
+
+    return economics_controller.Economics(
+        start_date="2020-01-01",
+        end_date="2023-12-31",
+        gmdb_source=True,
+    )
+
+
+@pytest.fixture(autouse=True)
+def fresh_global_macro_database():
+    """Every test reads its own Global Macro Database rather than the process-wide copy."""
+    from financetoolkit.economics import gmdb_model
+
+    gmdb_model._SHARED_DATASETS.clear()
+    yield
+    gmdb_model._SHARED_DATASETS.clear()

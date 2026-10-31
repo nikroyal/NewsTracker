@@ -1,0 +1,483 @@
+"""Piotroski Module"""
+
+__docformat__ = "google"
+
+import pandas as pd
+
+from financetoolkit.ratios import (
+    efficiency_model,
+    liquidity_model,
+    profitability_model,
+    solvency_model,
+)
+
+
+def get_return_on_assets_criteria(
+    net_income: pd.DataFrame,
+    beginning_total_assets: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Calculates the Return on Assets (ROA) criteria for the Piotroski F-Score model.
+
+    The Return on Assets (ROA) is a financial metric used to measure a company's profitability by
+    showing how much profit a company generates from its total assets. Piotroski (2000) defines ROA
+    as net income scaled by the total assets at the beginning of the year.
+
+    The formula is as follows:
+
+        - Return on Assets (ROA) = Net Income / Total Assets (beginning of period)
+        - Return on Assets Criteria = Return on Assets (ROA) > 0
+
+    Args:
+        net_income (pd.DataFrame): The net income of the company.
+        beginning_total_assets (pd.DataFrame): The total assets of the company at the beginning
+        of the period (the previous period's closing total assets).
+
+    Returns:
+        pd.DataFrame: A boolean value indicating whether the company meets the
+        Return on Assets (ROA) criteria.
+
+    Notes:
+    - A positive Return on Assets (ROA) indicates that a company is generating profit from its assets.
+    """
+
+    return_on_assets = profitability_model.get_return_on_assets(
+        net_income=net_income,
+        average_total_assets=beginning_total_assets,
+    )
+
+    return_on_assets_criteria = return_on_assets > 0
+
+    return return_on_assets_criteria
+
+
+def get_operating_cashflow_criteria(
+    operating_cashflow: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Calculates the operating cash flow criteria for the Piotroski F-Score model.
+
+    The operating cash flow criteria is a binary metric that indicates whether a company's operating cash
+    flow is positive or not. A positive operating cash flow is considered a good sign for a company's
+    financial health.
+
+    The formula is as follows:
+
+            - Operating Cash Flow Criteria = Operating Cash Flow > 0
+
+    Args:
+        operating_cashflow (pd.DataFrame): The operating cash flow of a company.
+
+    Returns:
+        pd.DataFrame: A binary metric indicating whether the
+        operating cash flow is positive (1) or not (0).
+    """
+    operating_cashflow_criteria = operating_cashflow > 0
+
+    return operating_cashflow_criteria
+
+
+def get_change_in_return_on_asset_criteria(
+    net_income: pd.DataFrame,
+    beginning_total_assets: pd.DataFrame,
+    lag: int = 1,
+) -> pd.DataFrame:
+    """
+    Calculates the change in the return on assets (F_dROA) criteria for the Piotroski F-Score
+    model.
+
+    The function calculates the return on assets (ROA) for a company based on its net income
+    and beginning-of-period total assets, and returns a boolean value indicating whether ROA in the current period
+    is higher than ROA in the prior period, matching Piotroski's (2000) original F_dROA signal.
+
+    The formula is as follows:
+
+        - Return on Assets (ROA) = Net Income / Total Assets (beginning of period)
+        - Change in Return on Assets Criteria = Return on Assets (ROA, t) > Return on Assets
+        (ROA, t-lag)
+
+    Args:
+        net_income (pd.DataFrame): The net income of the company for the period.
+        beginning_total_assets (pd.DataFrame): The total assets of the company at the
+        beginning of the period.
+        lag (int, optional): The number of periods between the two compared periods: 1 on yearly
+        data and 4 on quarterly data, so the comparison is year over year. Defaults to 1.
+
+    Returns:
+        pd.DataFrame: A boolean value indicating whether the ROA has increased
+        compared to `lag` periods earlier.
+
+    """
+    return_on_assets = profitability_model.get_return_on_assets(
+        net_income=net_income, average_total_assets=beginning_total_assets
+    )
+
+    change_in_return_on_assets_criteria = return_on_assets > return_on_assets.shift(
+        lag, axis=1
+    )
+
+    return change_in_return_on_assets_criteria
+
+
+def get_accruals_criteria(
+    net_income: pd.DataFrame,
+    operating_cashflow: pd.DataFrame,
+    beginning_total_assets: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Calculates the accruals criteria (F_ACCRUAL) for the Piotroski F-Score model.
+
+    The accruals criteria is a financial metric used to measure a company's earnings quality. It compares
+    the cash a company actually generated from operations against the profit it reported, both scaled by
+    the same asset base. It scores 1 when operating cash flow exceeds the return on assets, i.e. when
+    accruals are negative and reported earnings are backed by cash, and 0 otherwise.
+
+    The formula is as follows:
+
+        - Return on Assets (ROA) = Net Income / Total Assets (beginning of period)
+        - Accruals Criteria = (Operating Cashflow / Total Assets (beginning of period)) > Return on Assets
+
+    Args:
+        net_income (pd.DataFrame): The net income of the company.
+        operating_cashflow (pd.DataFrame): The operating cashflow of the company.
+        beginning_total_assets (pd.DataFrame): The total assets of the company at the beginning of
+        the period. Piotroski (2000) scales both the Return on Assets and the Cash Flow from Operations
+        by this same figure, which is what makes the comparison reduce to the sign of accruals.
+
+    Returns:
+        pd.DataFrame: The accruals criteria for the company.
+
+    References:
+    - Piotroski, Joseph D. "Value Investing: The Use of Historical Financial Statement Information to
+    Separate Winners from Losers." Journal of Accounting Research, Vol. 38, Supplement, 2000, pp. 1-41.
+    """
+
+    return_on_assets = profitability_model.get_return_on_assets(
+        net_income=net_income, average_total_assets=beginning_total_assets
+    )
+
+    operating_cf_to_total_assets = operating_cashflow / beginning_total_assets
+
+    accruals_criteria = operating_cf_to_total_assets > return_on_assets
+
+    return accruals_criteria
+
+
+def get_change_in_leverage_criteria(
+    long_term_debt: pd.DataFrame,
+    average_total_assets: pd.DataFrame,
+    lag: int = 1,
+) -> pd.DataFrame:
+    """
+    Calculate the change in leverage criteria (F_dLEVER) for the Piotroski F-Score model.
+
+    Piotroski (2000) defines dLEVER as the change in the ratio of total *long-term* debt to *average*
+    total assets, and treats an increase in long-term leverage as a negative signal: a firm raising
+    long-term debt is signalling that it cannot fund itself internally, and it tightens the constraints
+    imposed by its debt covenants. Short-term debt is deliberately excluded, since it reflects working
+    capital management rather than a change in the firm's long-term capital structure.
+
+    The formula is as follows:
+
+        - Leverage Ratio = Long Term Debt / Average Total Assets
+        - Change in Leverage Criteria = Leverage Ratio (t) < Leverage Ratio (t-lag)
+
+    Args:
+        long_term_debt (pd.DataFrame): The total long term debt of a company, which
+        can be a float or a time-series.
+        average_total_assets (pd.DataFrame): The average total assets of a company
+        over the beginning and the end of the period, which can be a float or a time-series.
+        lag (int, optional): The number of periods between the two compared periods: 1 on yearly
+        data and 4 on quarterly data, so the comparison is year over year. Defaults to 1.
+
+    Returns:
+        pd.DataFrame: A boolean criteria indicating whether the leverage ratio
+        decreased compared to `lag` periods earlier (True for decrease, False for increase or no change).
+
+    Notes:
+    - A True value in the criteria indicates a decrease in long-term leverage (the favourable signal,
+    scoring 1), while a False value suggests an increase or no change.
+    - This function can be used to monitor changes in a company's leverage over time.
+
+    References:
+    - Piotroski, Joseph D. "Value Investing: The Use of Historical Financial Statement Information to
+    Separate Winners from Losers." Journal of Accounting Research, Vol. 38, Supplement, 2000, pp. 1-41.
+    """
+    debt_ratio = solvency_model.get_debt_to_assets_ratio(
+        total_debt=long_term_debt, total_assets=average_total_assets
+    )
+
+    debt_ratio_criteria = debt_ratio < debt_ratio.shift(lag, axis=1)
+
+    return debt_ratio_criteria
+
+
+def get_change_in_current_ratio_criteria(
+    current_assets: pd.DataFrame,
+    current_liabilities: pd.DataFrame,
+    lag: int = 1,
+) -> pd.DataFrame:
+    """
+    Calculate criteria for evaluating changes in the Current Ratio over time.
+
+    The Current Ratio is a financial metric used to assess a company's short-term liquidity and its ability
+    to meet short-term obligations. It measures the relationship between current assets and current liabilities.
+
+    The formula is as follows:
+
+        - Current Ratio = Current Assets / Current Liabilities
+        - Current Ratio Criteria = Current Ratio (t) > Current Ratio (t-lag)
+
+    Args:
+        current_assets (pd.DataFrame): The current assets of a company, which can
+        be a time-series.
+        current_liabilities (pd.DataFrame): The current liabilities of a company, which
+        can be a time-series.
+        lag (int, optional): The number of periods between the two compared periods: 1 on yearly
+        data and 4 on quarterly data, so the comparison is year over year. Defaults to 1.
+
+    Returns:
+        pd.DataFrame: A boolean criteria indicating whether the Current Ratio increased compared
+        to `lag` periods earlier (True for increase, False for decrease or no change).
+
+    Notes:
+    - A True value in the criteria indicates an improvement in liquidity, while a False value
+    suggests a decrease or no improvement.
+    - This function can be used to monitor changes in a company's short-term liquidity over time.
+    """
+    current_ratio = liquidity_model.get_current_ratio(
+        current_assets=current_assets, current_liabilities=current_liabilities
+    )
+
+    current_ratio_criteria = current_ratio > current_ratio.shift(lag, axis=1)
+
+    return current_ratio_criteria
+
+
+def get_number_of_shares_criteria(
+    common_stock_issued: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Calculate the equity issuance (EQ_OFFER) criteria for the Piotroski F-Score model.
+
+    Piotroski (2000) treats raising external equity as an unfavourable signal: a financially
+    healthy firm funds itself internally, so a firm tapping the equity market is signalling that
+    it cannot generate enough internal funds to service its future obligations. The signal is
+    therefore defined the "good news" way round — it scores 1 when the firm did *not* issue
+    common equity in the period, and 0 when it did.
+
+    The formula is as follows:
+
+        - Number of Shares Criteria = Common Stock Issued == 0
+
+    Args:
+        common_stock_issued (pd.DataFrame): The proceeds from common stock issued by
+        the company during the period, as a time-series.
+
+    Returns:
+        pd.DataFrame: A boolean criteria that is True when the company issued no
+        common stock during the period (the favourable case, scoring 1) and False when it did
+        issue common stock (scoring 0).
+
+    Notes:
+    - A True value in the criteria indicates that no common shares were issued, which is the
+    favourable signal in the F-Score; a False value indicates that common shares were issued.
+    - As noted in `get_piotroski_score`, routine annual equity issuance is normal in some sectors
+    (e.g. through stock-based compensation programmes), so this signal is only meaningful when
+    comparing companies within the same sector.
+    """
+    number_of_shares_criteria = common_stock_issued == 0
+
+    return number_of_shares_criteria
+
+
+def get_gross_margin_criteria(
+    revenue: pd.DataFrame,
+    cost_of_goods_sold: pd.DataFrame,
+    lag: int = 1,
+) -> pd.DataFrame:
+    """
+    Calculate criteria for evaluating changes in the Gross Margin over time.
+
+    The Gross Margin is a key profitability metric that measures the difference between a company's revenue and
+    the cost of goods sold. It reflects the profitability of a company's core operations.
+
+    The formula is as follows:
+
+        - Gross Margin = (Revenue - Cost of Goods Sold) / Revenue
+        - Gross Margin Criteria = Gross Margin (t) > Gross Margin (t-lag)
+
+    Args:
+        revenue (pd.DataFrame): The revenue generated by a company, which can be a time-series.
+        cost_of_goods_sold (pd.DataFrame): The cost of goods sold by a company, which can be a time-series.
+        lag (int, optional): The number of periods between the two compared periods: 1 on yearly
+        data and 4 on quarterly data, so the comparison is year over year. Defaults to 1.
+
+    Returns:
+        pd.DataFrame: A boolean criteria indicating whether the Gross Margin increased compared to the
+        period `lag` periods earlier (True for increase, False for decrease or no change).
+
+    Notes:
+    - A True value in the criteria indicates an improvement in profitability, while a False value
+    suggests a decrease or no improvement.
+    - This function can be used to monitor changes in a company's core operational profitability over time.
+    """
+    gross_margin = profitability_model.get_gross_margin(
+        revenue=revenue, cost_of_goods_sold=cost_of_goods_sold
+    )
+
+    gross_margin_criteria = gross_margin > gross_margin.shift(lag, axis=1)
+
+    return gross_margin_criteria
+
+
+def get_asset_turnover_ratio_criteria(
+    sales: pd.DataFrame,
+    beginning_total_assets: pd.DataFrame,
+    lag: int = 1,
+) -> pd.DataFrame:
+    """
+    Calculate criteria for evaluating changes in the Asset Turnover Ratio over time.
+
+    The Asset Turnover Ratio is a fundamental efficiency metric that assesses how effectively a company generates sales
+    from its total assets. It indicates the company's ability to efficiently utilize its assets to generate revenue.
+    Piotroski (2000) scales sales by the total assets at the beginning of the year.
+
+    The formula is as follows:
+
+        - Asset Turnover Ratio = Sales / Total Assets (beginning of period)
+        - Asset Turnover Criteria = Asset Turnover Ratio (t) > Asset Turnover Ratio (t-lag)
+
+    Args:
+        sales (pd.DataFrame): The sales or revenue generated by a company, which can
+        be a time-series or DataFrame.
+        beginning_total_assets (pd.DataFrame): The total assets of a company at the beginning
+        of the period, which can be a time-series or DataFrame.
+        lag (int, optional): The number of periods between the two compared periods: 1 on yearly
+        data and 4 on quarterly data, so the comparison is year over year. Defaults to 1.
+
+    Returns:
+        pd.DataFrame: A boolean criteria indicating whether the Asset Turnover Ratio increased compared to the
+        period `lag` periods earlier (True for increase, False for decrease or no change).
+
+    Notes:
+    - A True value in the criteria suggests improved asset utilization and efficiency, while a False value
+    indicates a decrease or no improvement.
+    - This function can be used to monitor changes in a company's ability to generate revenue from its assets over time.
+    """
+    asset_turnover_ratio = efficiency_model.get_asset_turnover_ratio(
+        sales=sales, average_total_assets=beginning_total_assets
+    )
+
+    asset_turnover_ratio_criteria = asset_turnover_ratio > asset_turnover_ratio.shift(
+        lag, axis=1
+    )
+
+    return asset_turnover_ratio_criteria
+
+
+def get_piotroski_score(
+    return_on_assets_criteria: pd.DataFrame,
+    operating_cashflow_criteria: pd.DataFrame,
+    change_in_return_on_asset_criteria: pd.DataFrame,
+    accruals_criteria: pd.DataFrame,
+    change_in_leverage_criteria: pd.DataFrame,
+    change_in_current_ratio_criteria: pd.DataFrame,
+    number_of_shares_criteria: pd.DataFrame,
+    gross_margin_criteria: pd.DataFrame,
+    asset_turnover_ratio_criteria: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Calculate the Piotroski Score, a comprehensive financial assessment tool that helps investors and analysts
+    evaluate a company's financial health and fundamental strength.
+
+    The Piotroski Score was developed by Joseph Piotroski and is based on a set of nine fundamental financial criteria.
+    Each criterion is assigned a score of 0 or 1, and the scores are then summed to calculate the Piotroski Score.
+
+    The nine criteria are categorized into three groups:
+
+    1. Profitability:
+        - Return on Assets (ROA) Criteria: Measures the profitability of the company.
+        - Operating Cash Flow Criteria: Evaluates the company's ability to generate cash from its operations.
+        - Change in ROA Criteria: Assesses the trend in ROA over time.
+        - Accruals Criteria: Examines the quality of earnings.
+
+    2. Leverage, Liquidity, and Operating Efficiency:
+        - Change in Leverage Criteria: Analyzes changes in the company's long-term leverage.
+        - Change in Current Ratio Criteria: Evaluates changes in the current ratio.
+        - Number of Shares Criteria: Assesses the issuance of common shares.
+
+    3. Operating Efficiency and Asset Utilization:
+        - Gross Margin Criteria: Examines the company's gross margin, a measure of profitability.
+        - Asset Turnover Ratio Criteria: Evaluates the efficiency of asset utilization and sales generation.
+
+    The Piotroski Score is calculated by summing the scores assigned to each of the nine criteria.
+    The maximum possible score is 9, indicating the highest financial strength, while the minimum score is 0,
+    suggesting potential financial weaknesses.
+
+    Args:
+        return_on_assets_criteria (pd.DataFrame): Criteria indicating
+        the company's return on assets.
+        operating_cashflow_criteria (pd.DataFrame): Criteria indicating the company's
+        operating cash flow.
+        change_in_return_on_asset_criteria (pd.DataFrame): Criteria indicating changes
+        in return on assets.
+        accruals_criteria (pd.DataFrame): Criteria indicating
+        the quality of earnings.
+        change_in_leverage_criteria (pd.DataFrame): Criteria indicating changes
+        in leverage.
+        change_in_current_ratio_criteria (pd.DataFrame): Criteria indicating changes
+        in the current ratio.
+        number_of_shares_criteria (pd.DataFrame): Criteria indicating the issuance
+        of common shares.
+        gross_margin_criteria (pd.DataFrame): Criteria indicating the company's
+        gross margin.
+        asset_turnover_ratio_criteria (pd.DataFrame): Criteria indicating the company's
+        asset turnover ratio.
+
+    Returns:
+        pd.DataFrame: The Piotroski Score, a numerical representation of a company's
+        fundamental financial strength.
+        A higher score indicates stronger financial health, while a lower score may suggest potential weaknesses.
+
+    Notes:
+    - A high Piotroski Score can be seen as a positive signal for investors, indicating that a company
+    meets several favorable financial criteria.
+    - It is essential to interpret the Piotroski Score in conjunction with other financial analysis and market research,
+      as it provides insights into a company's financial condition but may not capture all aspects of its performance.
+
+    References:
+    - Piotroski, Joseph D. "Value Investing: The Use of Historical Financial Statement Information to
+    Separate Winners from Losers." Journal of Accounting Research, Vol. 38, Supplement, 2000, pp. 1-41.
+    """
+    return_on_assets_criteria = return_on_assets_criteria.astype(int)
+
+    operating_cashflow_criteria = operating_cashflow_criteria.astype(int)
+
+    change_in_return_on_asset_criteria = change_in_return_on_asset_criteria.astype(int)
+
+    accruals_criteria = accruals_criteria.astype(int)
+
+    change_in_leverage_criteria = change_in_leverage_criteria.astype(int)
+
+    change_in_current_ratio_criteria = change_in_current_ratio_criteria.astype(int)
+
+    number_of_shares_criteria = number_of_shares_criteria.astype(int)
+
+    gross_margin_criteria = gross_margin_criteria.astype(int)
+
+    asset_turnover_ratio_criteria = asset_turnover_ratio_criteria.astype(int)
+
+    piotroski_score = (
+        return_on_assets_criteria
+        + operating_cashflow_criteria
+        + change_in_return_on_asset_criteria
+        + accruals_criteria
+        + change_in_leverage_criteria
+        + change_in_current_ratio_criteria
+        + number_of_shares_criteria
+        + gross_margin_criteria
+        + asset_turnover_ratio_criteria
+    )
+
+    return piotroski_score

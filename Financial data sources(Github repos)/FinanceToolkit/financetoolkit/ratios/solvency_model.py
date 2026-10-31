@@ -1,0 +1,386 @@
+"""Solvency Module"""
+
+__docformat__ = "google"
+
+
+import pandas as pd
+
+
+def get_debt_to_assets_ratio(
+    total_debt: pd.Series | pd.DataFrame, total_assets: pd.Series | pd.DataFrame
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the debt to assets ratio, a solvency ratio that measures the proportion of a
+    company's assets that are financed by debt.
+
+    This ratio is also known as the debt ratio.
+
+    Args:
+        total_debt (float or pd.Series): Total debt of the company.
+        total_assets (float or pd.Series): Total assets of the company.
+
+    Returns:
+        float | pd.Series: The debt ratio value.
+    """
+    return total_debt / total_assets
+
+
+def get_debt_to_equity_ratio(
+    total_debt: pd.Series | pd.DataFrame, total_equity: pd.Series | pd.DataFrame
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the debt to equity ratio, a solvency ratio that measures the
+    proportion of a company's equity that is financed by debt.
+
+    Args:
+        total_debt (float or pd.Series): Total debt of the company.
+        total_equity (float or pd.Series): Total equity of the company.
+
+    Returns:
+        float | pd.Series: The debt to equity ratio value.
+    """
+    return total_debt / total_equity
+
+
+def get_interest_coverage_ratio(
+    operating_income: pd.Series | pd.DataFrame,
+    interest_expense: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the interest coverage ratio, a solvency ratio that measures a company's
+    ability to pay its interest expenses on outstanding debt out of its operating profit.
+
+    The formula is as follows (CFA Institute):
+
+        Interest Coverage Ratio = EBIT / Interest Expense
+
+    A zero interest expense gives no meaningful coverage (an infinite ratio), so those
+    periods are returned as NaN.
+
+    Also known as: times interest earned, TIE.
+
+    Args:
+        operating_income (float or pd.Series): Operating income (EBIT) of the company.
+        interest_expense (float or pd.Series): Total interest expense of the company.
+
+    Returns:
+        float | pd.Series: The interest coverage ratio value, NaN where the interest expense
+            is zero.
+    """
+    return operating_income / interest_expense.where(interest_expense != 0)
+
+
+def get_debt_service_coverage_ratio(
+    operating_income: pd.Series | pd.DataFrame,
+    depreciation_and_amortization: pd.Series | pd.DataFrame,
+    interest_expense: pd.Series | pd.DataFrame,
+    short_term_debt: pd.Series | pd.DataFrame,
+    window_years: float = 1.0,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the debt service coverage ratio, a solvency ratio that measures a company's
+    ability to service its debt (pay interest and repay the principal falling due) out
+    of its operating earnings.
+
+    Total debt service is the interest expense of the period plus the principal due
+    within a year, which is the short-term debt (including the current portion of
+    long-term debt) on the balance sheet. The numerator is EBITDA, operating income
+    plus depreciation and amortization, as a proxy for the cash operating earnings
+    available to service the debt.
+
+    The short-term debt is the principal due over the next year, while the earnings and the
+    interest cover the window of the figures: a quarter, a year or a trailing multiple of
+    either. The principal is therefore scaled to the length of that window in years, so
+    earnings, interest and principal all cover the same span: a quarter of earnings is
+    compared with a quarter of the principal due within a year.
+
+    The formula is as follows:
+
+        Debt Service Coverage Ratio = (Operating Income + Depreciation and Amortization) /
+            (Interest Expense + Short Term Debt x Window Years)
+
+    A zero debt service gives no meaningful coverage, so those periods are returned as NaN.
+
+    Args:
+        operating_income (float or pd.Series): Operating income of the company.
+        depreciation_and_amortization (float or pd.Series): Depreciation and amortization of
+            the company.
+        interest_expense (float or pd.Series): Interest expense of the company.
+        short_term_debt (float or pd.Series): Short-term debt of the company, the principal
+            due within a year.
+        window_years (float, optional): The length in years of the window the operating
+            income, depreciation and interest cover, e.g. 0.25 for a quarter and 1 for a
+            trailing twelve months. Defaults to 1.0.
+
+    Returns:
+        float | pd.Series: The debt service coverage ratio value.
+    """
+    # The principal due within a year, spread evenly over the year, for the window's length.
+    debt_service = interest_expense + short_term_debt * window_years
+
+    return (operating_income + depreciation_and_amortization) / debt_service.where(
+        debt_service != 0
+    )
+
+
+def get_equity_multiplier(
+    average_total_assets: pd.Series | pd.DataFrame,
+    average_total_equity: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the equity multiplier, a solvency ratio that measures the degree to which a company
+    uses borrowed money (debt) to finance its operations and growth.
+
+    This is also referred to as the company financial leverage.
+
+    Args:
+        average_total_assets (float or pd.Series): Average total assets of the company.
+            This is typically calculated as (beginning total assets + ending total assets) / 2.
+        average_total_equity (float or pd.Series): Average total equity of the company.
+            This is typically calculated as (beginning total equity + ending total equity) / 2.
+
+    Returns:
+        float | pd.Series: The equity multiplier.
+    """
+    return average_total_assets / average_total_equity
+
+
+def get_free_cash_flow_yield(
+    free_cash_flow: pd.Series | pd.DataFrame,
+    market_capitalization: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculates the free cash flow yield ratio, which measures the free cash flow
+    relative to the market capitalization of the company.
+
+    Args:
+        free_cash_flow (float or pd.Series): Free cash flow of the company.
+        market_capitalization (float or pd.Series): Market capitalization of the company.
+
+    Returns:
+        float | pd.Series: The free cash flow yield ratio.
+    """
+    return free_cash_flow / market_capitalization
+
+
+def get_net_debt_to_ebitda_ratio(
+    operating_income: pd.Series | pd.DataFrame,
+    depreciation_and_amortization: pd.Series | pd.DataFrame,
+    net_debt: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculates the net debt to EBITDA ratio, which measures the net debt of the company
+    relative to its EBITDA.
+
+    Args:
+        operating_income (float or pd.Series): Operating income of the company.
+        depreciation_and_amortization (float or pd.Series): Depreciation and amortization of the company.
+        net_debt (float or pd.Series): Net debt of the company.
+
+    Returns:
+        float | pd.Series: The net debt to EBITDA ratio.
+    """
+    return net_debt / (operating_income + depreciation_and_amortization)
+
+
+def get_gross_debt_to_ebitda_ratio(
+    total_debt: pd.Series | pd.DataFrame,
+    operating_income: pd.Series | pd.DataFrame,
+    depreciation_and_amortization: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculates the gross debt to EBITDA ratio, which measures the total (gross) debt of
+    the company relative to its EBITDA.
+
+    This differs from `get_net_debt_to_ebitda_ratio` in that it uses total (gross) debt
+    rather than net debt (total debt minus cash and cash equivalents). Gross debt to
+    EBITDA is a more conservative leverage measure since it does not assume that a
+    company's cash balance would actually be used to pay down debt, which matters when
+    comparing companies with restricted cash, cash earmarked for other purposes, or when
+    assessing gross refinancing risk rather than net economic leverage.
+
+    The formula is as follows:
+
+        Gross Debt to EBITDA Ratio = Total Debt / (Operating Income + Depreciation and Amortization)
+
+    Args:
+        total_debt (float or pd.Series): Total debt of the company.
+        operating_income (float or pd.Series): Operating income of the company.
+        depreciation_and_amortization (float or pd.Series): Depreciation and amortization of the company.
+
+    Returns:
+        float | pd.Series: The gross debt to EBITDA ratio.
+    """
+    return total_debt / (operating_income + depreciation_and_amortization)
+
+
+def get_asset_coverage_ratio(
+    total_assets: pd.Series | pd.DataFrame,
+    intangible_assets: pd.Series | pd.DataFrame,
+    current_liabilities: pd.Series | pd.DataFrame,
+    short_term_debt: pd.Series | pd.DataFrame,
+    total_debt: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the asset coverage ratio, a solvency ratio that measures how well a
+    company's tangible assets, after settling non-debt current liabilities, can cover
+    its total debt.
+
+    This ratio is commonly used by lenders and bondholders to assess the extent to
+    which a company's hard (tangible) assets would be available to repay debt
+    obligations in a liquidation scenario, since intangible assets (e.g. goodwill)
+    typically have little to no recovery value and non-debt current liabilities are
+    assumed to be settled first out of current assets. Short-term debt is netted out
+    of current liabilities before subtracting, because it is already captured in
+    total debt — otherwise it would be double-counted, once as part of current
+    liabilities and again as part of total debt.
+
+    The formula is as follows:
+
+        Asset Coverage Ratio = [(Total Assets - Intangible Assets)
+            - (Current Liabilities - Short-Term Debt)] / Total Debt
+
+    Args:
+        total_assets (float or pd.Series): Total assets of the company.
+        intangible_assets (float or pd.Series): Intangible assets of the company.
+        current_liabilities (float or pd.Series): Total current liabilities of the company.
+        short_term_debt (float or pd.Series): Short-term (current portion of) debt of the company.
+        total_debt (float or pd.Series): Total debt of the company.
+
+    Returns:
+        float | pd.Series: The asset coverage ratio.
+    """
+    return (
+        (total_assets - intangible_assets) - (current_liabilities - short_term_debt)
+    ) / total_debt
+
+
+def get_cash_flow_coverage_ratio(
+    operating_cash_flow: pd.Series | pd.DataFrame, total_debt: pd.Series | pd.DataFrame
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the cash flow coverage ratio, a solvency ratio that measures a company's ability to pay off its debt
+    with its operating cash flow.
+
+    Args:
+        operating_cash_flow (float or pd.Series): Operating cash flow of the company.
+        total_debt (float or pd.Series): Total debt of the company.
+
+    Returns:
+        float | pd.Series: The cash flow coverage ratio value.
+    """
+    return operating_cash_flow / total_debt
+
+
+def get_capex_coverage_ratio(
+    cash_flow_from_operations: pd.Series | pd.DataFrame,
+    capital_expenditure: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the capital expenditure coverage ratio, a solvency ratio that
+    measures a company's ability to cover its capital expenditures with its
+    cash flow from operations.
+
+    Args:
+        cash_flow_from_operations (float or pd.Series): Cash flow from operations of the company.
+        capital_expenditure (float or pd.Series): Capital expenditure of the company,
+            as reported in the Cash Flow Statement.
+
+    Returns:
+        float | pd.Series: The capital expenditure coverage ratio value.
+    """
+    # Capital Expenditure is reported as a negative cash outflow, so the magnitude is used to keep the ratio positive and consistent with "higher is better".  # noqa: E501
+    return cash_flow_from_operations / abs(capital_expenditure)
+
+
+def get_dividend_capex_coverage_ratio(
+    cash_flow_from_operations: pd.Series | pd.DataFrame,
+    capital_expenditure: pd.Series | pd.DataFrame,
+    dividends: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the dividend paid and capex coverage ratio, a solvency ratio that
+    measures a company's ability to cover both its capital expenditures and
+    dividend payments with its cash flow from operations.
+
+    Args:
+        cash_flow_from_operations (float or pd.Series): Cash flow from operations of the company.
+        capital_expenditure (float or pd.Series): Capital expenditure of the company,
+            as reported in the Cash Flow Statement.
+        dividends (float or pd.Series): Dividend payments of the company, as reported
+            in the Cash Flow Statement.
+
+    Returns:
+        float | pd.Series: The dividend paid and capex coverage ratio value.
+    """
+    # Both are reported as negative cash outflows, so their magnitudes are used to keep the ratio positive and consistent with "higher is better".  # noqa: E501
+    return cash_flow_from_operations / (abs(capital_expenditure) + abs(dividends))
+
+
+def get_debt_to_capital_ratio(
+    total_debt: pd.Series | pd.DataFrame, total_equity: pd.Series | pd.DataFrame
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the debt to capital ratio, a solvency ratio that measures the proportion
+    of a company's total capital (debt plus equity) that is financed by debt.
+
+    Unlike the debt to equity ratio, which can theoretically exceed one or become
+    negative with low or negative equity, the debt to capital ratio is bounded
+    between 0 and 1 under normal circumstances, making it easier to compare across
+    companies with very different capital structures.
+
+    Args:
+        total_debt (float or pd.Series): Total debt of the company.
+        total_equity (float or pd.Series): Total equity of the company.
+
+    Returns:
+        float | pd.Series: The debt to capital ratio value.
+    """
+    return total_debt / (total_debt + total_equity)
+
+
+def get_preferred_dividend_coverage_ratio(
+    net_income: pd.Series | pd.DataFrame, preferred_dividends: pd.Series | pd.DataFrame
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the preferred dividend coverage ratio, a solvency ratio that measures a
+    company's ability to pay dividends owed to preferred shareholders out of its net
+    income.
+
+    Args:
+        net_income (float or pd.Series): Net income of the company.
+        preferred_dividends (float or pd.Series): Preferred dividends paid by the company,
+            as reported in the Cash Flow Statement.
+
+    Returns:
+        float | pd.Series: The preferred dividend coverage ratio value, NaN where no
+            preferred dividends were paid (there is nothing to cover).
+    """
+    preferred_dividends = abs(preferred_dividends)
+
+    return net_income / preferred_dividends.where(preferred_dividends != 0)
+
+
+def get_interest_paid_to_expense_ratio(
+    interest_paid: pd.Series | pd.DataFrame, interest_expense: pd.Series | pd.DataFrame
+) -> pd.Series | pd.DataFrame:
+    """
+    Calculate the interest paid to interest expense ratio, which measures how much of
+    the accrual-based interest expense reported on the income statement was actually
+    paid out in cash during the period.
+
+    A ratio consistently below one can indicate that interest is being accrued
+    (e.g. on payment-in-kind debt) rather than paid, while a ratio well above one can
+    indicate the payment of previously accrued interest or a mismatch between the cash
+    and accrual reporting periods, both of which are relevant quality-of-earnings signals.
+
+    Args:
+        interest_paid (float or pd.Series): Interest paid by the company, as reported
+            in the Cash Flow Statement.
+        interest_expense (float or pd.Series): Interest expense of the company, as reported
+            in the Income Statement.
+
+    Returns:
+        float | pd.Series: The interest paid to interest expense ratio value.
+    """
+    return interest_paid / interest_expense

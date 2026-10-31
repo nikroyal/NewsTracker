@@ -1,0 +1,429 @@
+"""Normalization Module"""
+
+__docformat__ = "google"
+
+import shutil
+from importlib import resources
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from financetoolkit.utilities import logger_model
+
+logger = logger_model.get_logger()
+
+# pylint: disable=too-many-locals, broad-exception-caught
+
+
+def initialize_statements_and_normalization(
+    balance: pd.DataFrame,
+    income: pd.DataFrame,
+    cash: pd.DataFrame,
+    format_location: str,
+    reverse_dates: bool,
+    start_date: str,
+    end_date: str,
+    quarterly: bool,
+):
+    """
+    Initializes financial statements by applying normalization and date conversion.
+    Also loads normalization format files.
+
+    Statements are not pre-loaded from cache here. Caching happens per ticker
+    when the statements are actually requested, so that a different ticker list or
+    period reuses what overlaps rather than being handed a previously assembled
+    frame for a different set of companies.
+
+    Args:
+        balance (pd.DataFrame): Raw balance sheet data.
+        income (pd.DataFrame): Raw income statement data.
+        cash (pd.DataFrame): Raw cash flow statement data.
+        format_location (str): Path to normalization file directory.
+        reverse_dates (bool): Whether to reverse the order of dates.
+        start_date (str): Start date for filtering.
+        end_date (str): End date for filtering.
+        quarterly (bool): Whether the data is quarterly.
+
+    Returns:
+        tuple: A tuple containing the processed statements (balance, income, cash, statistics)
+               and the loaded normalization formats, for FinancialModelingPrep and for
+               Yahoo Finance, including the statistics format of both sources.
+    """
+    norm_file_names = [
+        "balance",
+        "balance_yf",
+        "income",
+        "income_yf",
+        "cash",
+        "cash_yf",
+        "statistics",
+        "statistics_yf",
+    ]
+    norm_formats = {
+        name: read_normalization_file(name, format_location) for name in norm_file_names
+    }
+    fmp_balance_sheet_statement_generic = norm_formats["balance"]
+    yf_balance_sheet_statement_generic = norm_formats["balance_yf"]
+    fmp_income_statement_generic = norm_formats["income"]
+    yf_income_statement_generic = norm_formats["income_yf"]
+    fmp_cash_flow_statement_generic = norm_formats["cash"]
+    yf_cash_flow_statement_generic = norm_formats["cash_yf"]
+    fmp_statistics_statement_generic = norm_formats["statistics"]
+    yf_statistics_statement_generic = norm_formats["statistics_yf"]
+
+    def _process_statement(
+        statement_df: pd.DataFrame,
+        statement_format: pd.Series,
+        statement_name: str,
+    ) -> pd.DataFrame:
+        """Normalizes a user supplied statement and relabels its dates."""
+        if not statement_df.empty:
+            try:
+                processed_statement = convert_financial_statements(
+                    financial_statements=statement_df,
+                    statement_format=statement_format,
+                    adjust_financial_statements=False,
+                    reverse_dates=reverse_dates,
+                )
+
+                # Ensure DataFrame type
+                if not isinstance(processed_statement, pd.DataFrame):
+                    logger.error(
+                        "convert_financial_statements for %s did not return a DataFrame (got %s). Returning empty.",
+                        statement_name,
+                        type(processed_statement),
+                    )
+                    return pd.DataFrame()
+
+                processed_statement = convert_date_label(
+                    financial_statement=processed_statement,
+                    start_date=start_date,
+                    end_date=end_date,
+                    quarter=quarterly,
+                )
+                return processed_statement
+            except Exception as e:
+                logger.error(
+                    "Error processing %s statement: %s. Returning empty DataFrame.",
+                    statement_name,
+                    e,
+                )
+                return pd.DataFrame()
+        else:
+            return pd.DataFrame()
+
+    balance_sheet_statement = _process_statement(
+        balance,
+        fmp_balance_sheet_statement_generic,
+        "balance sheet",
+    )
+    income_statement = _process_statement(
+        income, fmp_income_statement_generic, "income"
+    )
+    cash_flow_statement = _process_statement(
+        cash, fmp_cash_flow_statement_generic, "cash flow"
+    )
+
+    statistics_statement = pd.DataFrame()
+
+    return (
+        balance_sheet_statement,
+        income_statement,
+        cash_flow_statement,
+        statistics_statement,
+        fmp_balance_sheet_statement_generic,
+        yf_balance_sheet_statement_generic,
+        fmp_income_statement_generic,
+        yf_income_statement_generic,
+        fmp_cash_flow_statement_generic,
+        yf_cash_flow_statement_generic,
+        fmp_statistics_statement_generic,
+        yf_statistics_statement_generic,
+    )
+
+
+def read_normalization_file(statement: str, format_location: str = ""):
+    """
+    This function copies the normalization files as found inside the environment and saves them
+    to a custom location defined by the user. This is designed to make it possible to edit these files
+    and supply them to the financial statement functions and within the Analyzer class.
+
+    Args:
+        statement (string): the type of statement you wish to read (balance, income, or cash).
+        format_location (string): the location to read the file from.
+    Returns:
+        A pandas Series containing the line items for the desired statement.
+    """
+    if statement not in [
+        "balance_yf",
+        "balance",
+        "income_yf",
+        "income",
+        "cash_yf",
+        "cash",
+        "statistics_yf",
+        "statistics",
+    ]:
+        raise ValueError(
+            "Please provide a valid statement type (balance, income, cash or statistics)."
+        )
+
+    if format_location:
+        file_location = f"{format_location}/{statement}.csv"
+    else:
+        file_location = resources.files(__package__).joinpath(
+            f"normalization/{statement}.csv"
+        )
+
+    try:
+        # A user supplied location is a plain path while the packaged default is a
+        # resource that may live inside a zip, so both are handed over as open files.
+        with (
+            open(file_location, encoding="utf-8")
+            if isinstance(file_location, str)
+            else file_location.open(encoding="utf-8")
+        ) as csv_file:
+            normalization = pd.read_csv(csv_file, index_col=[0]).iloc[:, 0]
+    except FileNotFoundError:
+        return pd.Series()
+
+    # Stray whitespace around a normalized name makes the same concept resolve to two different labels depending on which source served the ticker, so every lookup on that name silently misses for one of them.  # noqa: E501
+    normalization.index = normalization.index.astype(str).str.strip()
+
+    return normalization.astype(str).str.strip()
+
+
+def convert_financial_statements(
+    financial_statements: pd.DataFrame,
+    statement_format: pd.Series | pd.DataFrame = pd.DataFrame(),
+    adjust_financial_statements: bool = True,
+    reverse_dates: bool = False,
+):
+    """
+    Converts financial statements (balance, income, or cash flow statements) based on custom input
+    and returns a DataFrame containing the data with the correct naming.
+
+    Args:
+        financial_statements (pd.DataFrame): DataFrame containing the financial statement data.
+        statement_format (pd.Series | pd.DataFrame): Optional mapping of the names of the financial statement line
+                            items to include in the output. Rows should contain the original name of the line item,
+                            and columns should contain the desired name for that line item.
+        adjust_financial_statements (bool): Whether to add every line item in the format that the provider did not
+                            return, filled with NaN, so that every ticker has the same rows. Defaults to True.
+                            NaN keeps an item the provider never reported apart from one it reported as zero.
+        reverse_dates (bool): Whether to reverse the order of the columns so the oldest period comes first.
+                            Defaults to False.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the financial statement data. If only one ticker is provided, the
+                    returned DataFrame will have a single column containing the data for that company.
+    """
+    naming = {}
+
+    if statement_format.empty:
+        # If not format is provided, simply use the original financial statements
+        return financial_statements
+
+    # Compared without surrounding whitespace so that statements normalized by an older version, which had stray spaces in a handful of names, are still recognised as already normalized instead of being dropped.  # noqa: E501
+    normalized_names = {str(value).strip() for value in statement_format.to_numpy()}
+
+    unmapped_names = []
+
+    for name in financial_statements.index.unique(level=1):
+        try:
+            if str(name).strip() in normalized_names:
+                naming[name] = str(name).strip()
+            else:
+                naming[name] = statement_format.loc[name]
+        except KeyError:
+            # A line item the provider returned that no normalization file names. It is dropped from the output, so it is reported rather than disappearing.  # noqa: E501
+            unmapped_names.append(str(name))
+            continue
+
+    if unmapped_names:
+        logger.debug(
+            "The following line items were returned by the data provider but are not "
+            "present in the normalization format, so they are not included in the "
+            "output: %s",
+            ", ".join(sorted(unmapped_names)),
+        )
+
+    if adjust_financial_statements:
+        # Add the line items the provider did not return, so that every ticker exposes the same rows. These are filled with NaN rather than zero: the provider not reporting an item says nothing about its value, and a fabricated zero is indistinguishable from a genuine zero while silently flowing into any ratio that uses it as a term or a denominator.  # noqa: E501
+        for name in statement_format.index:
+            for ticker in financial_statements.index.unique(level=0):
+                if name not in financial_statements.loc[ticker].index:
+                    financial_statements.loc[(ticker, name), :] = np.nan
+
+        # All columns are present now, so the original statement format can be reused.
+        naming = statement_format
+
+    # Select only the columns it could trace back to the format
+    financial_statements = financial_statements.loc[:, list(naming.keys()), :]
+    financial_statements = financial_statements.rename(index=naming)
+
+    if reverse_dates:
+        financial_statements = financial_statements[financial_statements.columns[::-1]]
+
+    return financial_statements.sort_index(level=0, sort_remaining=False)
+
+
+def convert_date_label(
+    financial_statement: pd.DataFrame,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    quarter: bool = False,
+):
+    """
+    This function converts the date labels of the financial statements to a PeriodIndex. This is meant to be used
+    throughout the entire Toolkit. This function is relevant for custom datasets that do not have a PeriodIndex.
+
+    As an example, if quarter = False, the date labels will be converted to a PeriodIndex with a frequency of 'Y'
+    which would convert 2022-12-31 to 2022. If quarter = True, the date labels will be converted to a PeriodIndex
+    with a frequency of 'Q' which would convert 2022-12-31 to 2022Q4.
+
+    Args:
+        financial_statement (pd.DataFrame): DataFrame containing the financial statement data.
+        start_date (str): The start date of the financial statement data.
+        end_date (str): The end date of the financial statement data.
+        quarter (bool): Whether to convert the date labels to a PeriodIndex with a frequency of 'Q' or 'Y'.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the financial statement data with a PeriodIndex.
+    """
+    financial_statement = financial_statement.sort_index(axis=1).truncate(
+        before=start_date, after=end_date, axis=1
+    )
+
+    if financial_statement.columns.duplicated().any():
+        # Duplicate statements for one period are equal, so one copy can be dropped.
+        financial_statement = financial_statement.loc[
+            :, ~financial_statement.columns.duplicated()
+        ]
+
+    try:
+        financial_statement = financial_statement.astype(np.float64)
+    except ValueError as error:
+        logger.error(
+            "Not able to convert DataFrame to float64 due to %s. This could result in"
+            "issues when values are zero and is predominantly relevant for "
+            "ratio calculations.",
+            error,
+        )
+
+    if quarter:
+        financial_statement.columns = pd.PeriodIndex(
+            financial_statement.columns, freq="Q"
+        )
+    else:
+        financial_statement.columns = pd.PeriodIndex(
+            financial_statement.columns, freq="Y"
+        )
+
+    return financial_statement
+
+
+def copy_normalization_files(
+    format_location: str = "",
+    save_location: str | Path = Path(Path.home(), "Downloads"),
+):
+    """
+    This function copies the normalization files as found inside the environment and saves them
+    to a custom location defined by the user. This is designed to make it possible to edit these files
+    and supply them to the financial statement functions and within the Analyzer class.
+
+    Args:
+        format_location (string): the location to read the file from.
+        save_location (string): the location you wish to save the files to.
+    Returns:
+        Three csv files saved to the desired location.
+    """
+    logger.info(
+        "Files are being saved to %s. Please see the following: "
+        "https://www.jeroenbouma.com/projects/financetoolkit/docs/external-datasets "
+        "to understand how to work with these files. In essence, all it requires is "
+        "to match up the rows in your dataframe with the normalization format.",
+        save_location,
+    )
+    save_location = Path(save_location)
+
+    for statement in ["balance", "income", "cash", "statistics"]:
+        if format_location:
+            file_location = f"{format_location}/{statement}.csv"
+        else:
+            file_location = resources.files(__package__).joinpath(
+                f"normalization/{statement}.csv"
+            )
+
+        def copy_to(target: Path) -> None:
+            # A user supplied location is a plain path while the packaged default is a
+            # resource that may live inside a zip, so both are copied as open files.
+            with (
+                (
+                    open(file_location, "rb")
+                    if isinstance(file_location, str)
+                    else file_location.open("rb")
+                ) as source,
+                open(target, "wb") as sink,
+            ):
+                shutil.copyfileobj(source, sink)
+
+        destination = save_location / f"{statement}.csv"
+        try:
+            copy_to(destination)
+        except PermissionError:
+            fallback = Path.cwd() / f"{statement}.csv"
+            logger.warning(
+                "Cannot write to %s (permission denied). Saving to %s instead.",
+                destination,
+                fallback,
+            )
+            copy_to(fallback)
+
+
+def get_normalization_files(path: str | Path = ""):
+    """
+    Copies the normalization files to a folder of your choice, the 'Downloads' folder by
+    default. These files map the rows of your own financial statements onto the names the
+    Finance Toolkit works with, so that you can supply your own datasets.
+
+    There are four files: balance.csv, income.csv and cash.csv for the balance sheet,
+    income statement and cash flow statement, and statistics.csv for the statistics such as
+    the number of shares outstanding. Each has a column with the Finance Toolkit name of a
+    row and a column to fill in with the matching row name of your own data. Pass the folder
+    with the filled-in files to the Toolkit with `format_location`. See the external
+    datasets guide for a worked example:
+    https://www.jeroenbouma.com/projects/financetoolkit/docs/external-datasets
+
+    No Toolkit instance (and no API key) is needed to get the files.
+
+    Args:
+        path (str | Path, optional): The folder to save the files to. Defaults to "", which
+            saves them to the 'Downloads' folder of your home directory.
+
+    Returns:
+        None: The four csv files are saved to the chosen folder. When that folder cannot be
+        written to, they are saved to the current working directory instead.
+
+    As an example:
+
+    ```python
+    from financetoolkit import Toolkit, get_normalization_files
+
+    get_normalization_files("normalization")
+
+    # Fill in the files, then supply your own statements together with them.
+    companies = Toolkit(
+        tickers=["TSLA"],
+        balance=balance_statement,
+        income=income_statement,
+        cash=cash_flow_statement,
+        format_location="normalization",
+    )
+    ```
+    """
+    if path:
+        copy_normalization_files(save_location=path)
+    else:
+        copy_normalization_files()
