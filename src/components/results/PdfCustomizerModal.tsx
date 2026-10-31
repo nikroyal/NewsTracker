@@ -35,40 +35,40 @@ export const PdfCustomizerModal: React.FC<PdfCustomizerModalProps> = ({
       generateExecutivePdf(report, options);
       setGenerating(false);
       onClose();
-    }, 300);
+    }, 250);
   };
 
   const toggles: { key: keyof PdfCustomizerOptions; label: string; desc: string }[] = [
-    { key: 'includeExecutiveSummary', label: 'Executive Global Overview', desc: 'Overall high-level synthesis across all entities' },
-    { key: 'includeImpactMatrix', label: 'Cross-Company Ecosystem Matrix', desc: 'Secondary ripple effects and correlation analysis' },
-    { key: 'includeCatalystsAndRisks', label: 'Growth Catalysts & Risk Factors', desc: 'Bulleted positive catalysts and regulatory/market risks' },
-    { key: 'includeCriticalEvents', label: 'Critical Event Badges', desc: 'High-volatility event warnings (SEC, CEO, M&A)' },
-    { key: 'includeCitations', label: 'Verified Citations Table', desc: 'Clickable article references with credibility scores' },
+    { key: 'includeExecutiveSummary', label: 'Executive Macro Overview', desc: 'Overall high-level cross-entity synthesis' },
+    { key: 'includeImpactMatrix', label: 'Cross-Entity Ripple Effect Matrix', desc: 'Dependencies and secondary ecosystem correlations' },
+    { key: 'includeCatalystsAndRisks', label: 'Catalysts & Risk Factors', desc: 'Bulleted positive drivers and market/regulatory risks' },
+    { key: 'includeCriticalEvents', label: 'Critical High-Volatility Events', desc: 'Leadership, earnings, regulatory, and litigation alerts' },
+    { key: 'includeCitations', label: 'Verified Citations & URLs', desc: 'Original article sources with credibility scores' },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-      <div className="w-full max-w-lg bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-fadeIn">
+      <div className="w-full max-w-lg bg-[#FFFFFF] border border-[#D5D4CC] rounded-2xl shadow-xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E6E5DE] bg-[#FAF9F5]">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <FileDown className="w-4 h-4 text-emerald-400" />
+            <div className="w-8 h-8 rounded-lg bg-[#FFFFFF] border border-[#E6E5DE] flex items-center justify-center text-[#1C1B18]">
+              <FileDown className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Customize PDF Report</h2>
-              <p className="text-xs text-slate-400">Select which sections to include in your downloadable report</p>
+              <h2 className="text-sm font-semibold text-[#1C1B18]">Customize Executive PDF</h2>
+              <p className="text-xs text-[#68665E]">Select sections to render into vector PDF</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-1.5 rounded-lg text-[#9E9C92] hover:text-[#1C1B18] transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Options */}
+        {/* Section Checkboxes */}
         <div className="p-6 space-y-3">
           {toggles.map(({ key, label, desc }) => {
             const isChecked = options[key];
@@ -76,18 +76,22 @@ export const PdfCustomizerModal: React.FC<PdfCustomizerModalProps> = ({
               <div
                 key={key}
                 onClick={() => toggle(key)}
-                className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start space-x-3 ${
+                className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start space-x-3 ${
                   isChecked
-                    ? 'bg-slate-900/80 border-slate-700 text-slate-200'
-                    : 'bg-slate-900/30 border-slate-800 text-slate-500'
+                    ? 'bg-[#FAF9F5] border-[#1C1B18]/40'
+                    : 'bg-[#FFFFFF] border-[#E6E5DE] hover:border-[#D5D4CC]'
                 }`}
               >
-                <div className="mt-0.5 text-indigo-400">
-                  {isChecked ? <CheckSquare className="w-4 h-4 text-indigo-400" /> : <Square className="w-4 h-4 text-slate-600" />}
+                <div className="mt-0.5 text-[#1C1B18]">
+                  {isChecked ? (
+                    <CheckSquare className="w-4 h-4" />
+                  ) : (
+                    <Square className="w-4 h-4 text-[#9E9C92]" />
+                  )}
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold text-white">{label}</h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{desc}</p>
+                  <div className="text-xs font-semibold text-[#1C1B18]">{label}</div>
+                  <div className="text-[11px] text-[#68665E]">{desc}</div>
                 </div>
               </div>
             );
@@ -95,24 +99,21 @@ export const PdfCustomizerModal: React.FC<PdfCustomizerModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-900/50">
-          <span className="text-xs font-mono text-slate-500">Vector PDF • Instant Generation</span>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white transition"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={generating}
-              className="px-5 py-2 rounded-xl text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition flex items-center space-x-1.5"
-            >
-              <FileDown className="w-4 h-4" />
-              <span>{generating ? 'Generating PDF...' : 'Download PDF Report'}</span>
-            </button>
-          </div>
+        <div className="px-6 py-4 bg-[#FAF9F5] border-t border-[#E6E5DE] flex items-center justify-end space-x-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-xs text-[#68665E] hover:text-[#1C1B18] transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={generating}
+            className="px-5 py-2 rounded-xl bg-[#1C1B18] hover:bg-[#2D2D2D] text-white text-xs font-medium flex items-center space-x-2 transition shadow-sm cursor-pointer disabled:opacity-50"
+          >
+            <FileDown className="w-4 h-4" />
+            <span>{generating ? 'Generating...' : 'Download PDF'}</span>
+          </button>
         </div>
       </div>
     </div>

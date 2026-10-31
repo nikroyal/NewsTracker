@@ -29,40 +29,40 @@ export const PasswordSignIn: React.FC<PasswordSignInProps> = ({ onSuccess }) => 
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#080b11]">
-      <div className="w-full max-w-md bg-[#0f172a]/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden">
-        {/* Subtle Ambient Glow */}
-        <div className="absolute -top-24 -left-24 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#F4F3EE]">
+      <div className="w-full max-w-md bg-[#FFFFFF] border border-[#E6E5DE] rounded-3xl p-8 shadow-sm relative">
         <div className="relative z-10">
           {/* Logo / Header */}
           <div className="flex items-center justify-center space-x-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <ShieldCheck className="w-5 h-5 text-white" />
+            <div className="w-11 h-11 rounded-2xl bg-[#1C1B18] text-white flex items-center justify-center shadow-sm">
+              <ShieldCheck className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white font-['Geist',sans-serif]">NewsTracker</h1>
-              <p className="text-xs text-slate-400 font-mono">CONFIDENTIAL ACCESS</p>
+              <h1 className="text-xl font-bold tracking-tight text-[#1C1B18] font-['Geist',sans-serif]">
+                NewsTracker
+              </h1>
+              <p className="text-[10px] text-[#68665E] font-mono tracking-wider">
+                CONFIDENTIAL PLATFORM ACCESS
+              </p>
             </div>
           </div>
 
           <div className="text-center mb-8">
-            <h2 className="text-base font-medium text-slate-200">Enter Access Password</h2>
-            <p className="text-xs text-slate-400 mt-1">Single-user secure platform authenticated via Firebase</p>
+            <h2 className="text-sm font-semibold text-[#1C1B18]">Enter Access Password</h2>
+            <p className="text-xs text-[#68665E] mt-1">Single-user protected platform with Firestore persistence</p>
           </div>
 
           {error && (
-            <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-start space-x-2 text-xs text-red-400">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div className="mb-6 p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start space-x-2 text-xs text-rose-800">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-600" />
               <span>{error}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-mono text-slate-400 mb-2 uppercase tracking-wider">
-                Password
+              <label className="block text-xs font-mono text-[#68665E] mb-2 uppercase tracking-wider">
+                Platform Password
               </label>
               <div className="relative">
                 <input
@@ -72,25 +72,25 @@ export const PasswordSignIn: React.FC<PasswordSignInProps> = ({ onSuccess }) => 
                   placeholder="••••••••••••"
                   autoFocus
                   required
-                  className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-3 pl-10 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all font-mono"
+                  className="w-full bg-[#FAF9F5] border border-[#E6E5DE] rounded-xl px-4 py-3 pl-10 text-sm text-[#1C1B18] placeholder-[#9E9C92] focus:outline-none focus:border-[#1C1B18] focus:bg-[#FFFFFF] transition-all font-mono"
                 />
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                <Lock className="w-4 h-4 text-[#9E9C92] absolute left-3.5 top-3.5" />
               </div>
             </div>
 
             <button
               type="submit"
               disabled={loading || !password.trim()}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-xl text-sm flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/20 transition-all"
+              className="w-full bg-[#1C1B18] hover:bg-[#2D2D2D] disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-xl text-xs flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
             >
               <span>{loading ? 'Authenticating...' : 'Unlock Platform'}</span>
               {!loading && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-slate-800/80 text-center">
-            <p className="text-[11px] text-slate-500 font-mono">
-              Cloudflare Free & Firebase Spark Tier Protected
+          <div className="mt-8 pt-6 border-t border-[#E6E5DE] text-center">
+            <p className="text-[11px] text-[#9E9C92] font-mono">
+              Cloudflare Edge & Firebase Spark Tier Protected
             </p>
           </div>
         </div>
@@ -98,3 +98,5 @@ export const PasswordSignIn: React.FC<PasswordSignInProps> = ({ onSuccess }) => 
     </div>
   );
 };
+
+export default PasswordSignIn;

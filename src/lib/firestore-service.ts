@@ -1,6 +1,6 @@
 /**
  * Pure Firestore Persistence Layer (100% Cloud-Only, Zero LocalStorage)
- * All data (prompts, watchlists, API keys, custom models, and past reports) is stored exclusively in Cloud Firestore.
+ * All data (universal API keys, custom models, presets, watchlists, workspace state, and past reports) is stored exclusively in Cloud Firestore.
  */
 
 import { db, isFirebaseConfigured } from './firebase';
@@ -15,7 +15,7 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore';
-import { AIProviderConfig, SynthesisReport } from '../types/ai';
+import { AIProviderConfig, SynthesisReport, UniversalApiKeyEntry } from '../types/ai';
 
 // Clean any legacy localStorage keys to ensure zero local data storage
 try {
@@ -95,7 +95,6 @@ export async function loadPromptPresets(): Promise<PromptPreset[]> {
         snap.forEach(d => presets.push(d.data() as PromptPreset));
         return presets;
       }
-      // Seed initial presets into Firestore on first load
       for (const p of INITIAL_PRESETS) {
         await setDoc(doc(db, 'presets', p.id), p);
       }
@@ -139,7 +138,6 @@ export async function loadWatchlists(): Promise<Watchlist[]> {
         snap.forEach(d => lists.push(d.data() as Watchlist));
         return lists;
       }
-      // Seed initial watchlists into Firestore on first load
       for (const wl of INITIAL_WATCHLISTS) {
         await setDoc(doc(db, 'watchlists', wl.id), wl);
       }
@@ -173,7 +171,54 @@ export async function deleteWatchlist(id: string): Promise<void> {
   }
 }
 
-// --- 3. API KEYS (Firestore Document: settings/api_keys) ---
+// --- 3. UNIVERSAL DYNAMIC API KEYS (Firestore Document: settings/universal_keys) ---
+export async function loadUniversalApiKeys(): Promise<UniversalApiKeyEntry[]> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'universal_keys'));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data?.entries)) {
+          return data.entries;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load universal API keys from Firestore:', e);
+    }
+  }
+  return [];
+}
+
+export async function saveUniversalApiKeys(entries: UniversalApiKeyEntry[]): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'settings', 'universal_keys'), {
+        entries,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Synchronize key dictionary to settings/api_keys for pipeline adapters
+      const dictionary: Record<string, string> = {};
+      entries.forEach(e => {
+        if (e.apiKey && e.enabled) {
+          dictionary[e.id] = e.apiKey;
+          const cleanName = e.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+          dictionary[cleanName] = e.apiKey;
+        }
+      });
+
+      await setDoc(doc(db, 'settings', 'api_keys'), {
+        keys: dictionary,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Failed to save universal API keys to Firestore:', e);
+      throw e;
+    }
+  }
+}
+
+// Legacy dictionary loader for compatibility
 export async function loadApiKeys(): Promise<Record<string, string>> {
   if (isFirebaseConfigured && db) {
     try {
@@ -265,19 +310,18 @@ export async function saveWorkspaceState(state: WorkspaceState): Promise<void> {
 export async function loadReportSnapshots(): Promise<SynthesisReport[]> {
   if (isFirebaseConfigured && db) {
     try {
-      const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'), limit(30));
+      const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'), limit(50));
       const snap = await getDocs(q);
       const reports: SynthesisReport[] = [];
       snap.forEach(d => reports.push(d.data() as SynthesisReport));
       return reports;
     } catch {
-      // Fallback in case composite index is building
       try {
         const snap = await getDocs(collection(db, 'reports'));
         const reports: SynthesisReport[] = [];
         snap.forEach(d => reports.push(d.data() as SynthesisReport));
         reports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        return reports.slice(0, 30);
+        return reports.slice(0, 50);
       } catch (inner) {
         console.error('Failed to load reports from Firestore:', inner);
       }

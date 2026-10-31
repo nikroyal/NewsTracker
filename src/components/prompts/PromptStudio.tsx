@@ -39,9 +39,9 @@ export const PromptStudio: React.FC<PromptStudioProps> = ({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
-          <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="text-xs font-mono uppercase tracking-wider text-[#68665E] flex items-center space-x-1.5 font-semibold">
+          <Terminal className="w-3.5 h-3.5 text-[#1C1B18]" />
           <span>Synthesis Prompt & Research Lens</span>
         </label>
 
@@ -50,90 +50,88 @@ export const PromptStudio: React.FC<PromptStudioProps> = ({
           {prompt.trim() && (
             <button
               onClick={() => setShowSaveModal(true)}
-              className="text-[11px] font-mono text-slate-400 hover:text-indigo-400 flex items-center space-x-1 transition"
-              title="Save this prompt as a preset for future sessions"
+              className="text-[11px] font-mono text-[#68665E] hover:text-[#1C1B18] flex items-center space-x-1 transition"
+              title="Save this prompt as a preset in Firestore"
             >
               <Bookmark className="w-3 h-3" />
-              <span>Save as Preset</span>
+              <span>Save Preset</span>
             </button>
           )}
 
           {prompt && (
             <button
               onClick={() => onChange('')}
-              className="text-[11px] font-mono text-slate-500 hover:text-rose-400 transition"
+              className="text-[11px] font-mono text-[#9E9C92] hover:text-rose-600 transition"
             >
-              Reset
+              Clear
             </button>
           )}
         </div>
       </div>
 
-      {/* Preset Pills */}
+      {/* Textarea Input */}
+      <div className="relative">
+        <textarea
+          rows={3}
+          value={prompt}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. Focus on recent earnings calls, GPU supply constraints, antitrust regulatory scrutiny, and cross-company customer agreements..."
+          className="w-full bg-[#FAF9F5] border border-[#E6E5DE] focus:border-[#1C1B18] focus:bg-[#FFFFFF] rounded-xl p-3 text-xs text-[#1C1B18] placeholder-[#9E9C92] focus:outline-none transition-all leading-relaxed font-mono resize-y"
+        />
+      </div>
+
+      {/* Presets Chips */}
       {presets.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          <span className="text-[11px] text-slate-500 font-mono flex items-center space-x-1 flex-shrink-0">
-            <Sparkles className="w-3 h-3 text-indigo-400" />
-            <span>Templates:</span>
-          </span>
-          {presets.map(p => (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[11px] font-mono text-[#9E9C92] mr-1">Presets:</span>
+          {presets.map((p) => (
             <div
               key={p.id}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300 hover:border-slate-700 hover:text-white transition group flex-shrink-0 cursor-pointer"
-              onClick={() => handleSelectPreset(p)}
+              className="inline-flex items-center rounded-lg bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] text-[11px] font-mono text-[#1C1B18] transition group shadow-xs"
             >
-              <span className="font-mono truncate max-w-[150px]">{p.name}</span>
-              {p.id.startsWith('preset_custom') && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeletePreset(p.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5"
-                  title="Delete preset"
-                >
-                  <Trash2 className="w-2.5 h-2.5" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => handleSelectPreset(p)}
+                className="px-2.5 py-1 text-left hover:text-[#1C1B18]"
+                title={p.content}
+              >
+                {p.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeletePreset(p.id)}
+                className="pr-1.5 pl-0.5 py-1 text-[#9E9C92] hover:text-rose-600 transition"
+                title="Delete preset"
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Prompt Textarea */}
-      <div className="relative">
-        <textarea
-          value={prompt}
-          onChange={(e) => onChange(e.target.value)}
-          rows={3}
-          placeholder="E.g., Highlight Q3/Q4 earnings surprises, patent litigation, supply chain headwinds, and regulatory antitrust developments..."
-          className="w-full bg-slate-900/60 border border-slate-800 focus:border-indigo-500/80 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none font-mono resize-none transition-all leading-relaxed"
-        />
-      </div>
-
-      {/* Save Modal Inline */}
+      {/* Save Preset Inline Box */}
       {showSaveModal && (
-        <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center space-x-2 animate-fadeIn text-xs">
+        <div className="p-3 bg-[#FFFFFF] border border-[#D5D4CC] rounded-xl flex items-center space-x-2 animate-fadeIn text-xs shadow-sm">
           <input
             type="text"
             value={presetTitle}
             onChange={(e) => setPresetTitle(e.target.value)}
-            placeholder="Preset Name (e.g. Risk & Antitrust Audit)"
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white font-mono focus:outline-none focus:border-indigo-500"
+            placeholder="Preset Name (e.g. Earnings & Guidance Lens)"
+            className="flex-1 bg-[#FAF9F5] border border-[#E6E5DE] rounded-lg px-3 py-1.5 text-[#1C1B18] font-mono focus:outline-none focus:border-[#1C1B18]"
             autoFocus
           />
           <button
             onClick={handleSave}
             disabled={!presetTitle.trim()}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center space-x-1 disabled:opacity-40"
+            className="px-3.5 py-1.5 rounded-lg bg-[#1C1B18] hover:bg-[#2D2D2D] text-white font-medium flex items-center space-x-1 disabled:opacity-40"
           >
             <Check className="w-3.5 h-3.5" />
-            <span>Save Preset</span>
+            <span>Save to Cloud</span>
           </button>
           <button
             onClick={() => setShowSaveModal(false)}
-            className="px-2 py-1.5 rounded-lg text-slate-400 hover:text-white"
+            className="px-2.5 py-1.5 rounded-lg text-[#68665E] hover:text-[#1C1B18]"
           >
             Cancel
           </button>

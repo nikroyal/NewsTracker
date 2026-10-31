@@ -63,22 +63,22 @@ export const CompanyTagger: React.FC<CompanyTaggerProps> = ({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
-          <Building2 className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Tracked Companies & Tickers ({companies.length})</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="text-xs font-mono uppercase tracking-wider text-[#68665E] flex items-center space-x-1.5 font-semibold">
+          <Building2 className="w-3.5 h-3.5 text-[#1C1B18]" />
+          <span>Tracked Entities & Tickers ({companies.length})</span>
         </label>
 
         {/* Watchlist Preset Selector */}
         <div className="flex items-center space-x-2">
           {watchlists.length > 0 && (
             <div className="flex items-center space-x-1 text-xs">
-              <span className="text-slate-500 text-[11px]">Watchlists:</span>
-              {watchlists.slice(0, 3).map(wl => (
+              <span className="text-[#9E9C92] text-[11px] font-mono">Watchlists:</span>
+              {watchlists.slice(0, 4).map(wl => (
                 <button
                   key={wl.id}
                   onClick={() => handleLoadWatchlist(wl)}
-                  className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] text-slate-400 hover:text-white hover:border-slate-700 transition font-mono"
+                  className="px-2 py-0.5 rounded-md bg-[#FAF9F5] border border-[#E6E5DE] text-[11px] text-[#1C1B18] hover:border-[#1C1B18] transition font-mono"
                   title={`Load ${wl.name} (${wl.companies.join(', ')})`}
                 >
                   {wl.name}
@@ -90,18 +90,18 @@ export const CompanyTagger: React.FC<CompanyTaggerProps> = ({
           {companies.length > 0 && (
             <button
               onClick={() => setShowSaveModal(true)}
-              className="text-[11px] font-mono text-slate-400 hover:text-indigo-400 flex items-center space-x-1 transition ml-1"
-              title="Save current companies as a watchlist"
+              className="text-[11px] font-mono text-[#68665E] hover:text-[#1C1B18] flex items-center space-x-1 transition ml-1"
+              title="Save current companies as a watchlist in Firestore"
             >
               <Bookmark className="w-3 h-3" />
-              <span>Save Set</span>
+              <span>Save Watchlist</span>
             </button>
           )}
 
           {companies.length > 0 && (
             <button
               onClick={() => onChange([])}
-              className="text-[11px] font-mono text-slate-500 hover:text-rose-400 transition ml-2"
+              className="text-[11px] font-mono text-[#9E9C92] hover:text-rose-600 transition ml-2"
             >
               Clear
             </button>
@@ -110,17 +110,17 @@ export const CompanyTagger: React.FC<CompanyTaggerProps> = ({
       </div>
 
       {/* Tag Input Box */}
-      <div className="min-h-[46px] p-2 bg-slate-900/60 border border-slate-800 focus-within:border-indigo-500/80 rounded-xl flex flex-wrap items-center gap-1.5 transition-all">
+      <div className="min-h-[48px] p-2 bg-[#FAF9F5] border border-[#E6E5DE] focus-within:border-[#1C1B18] focus-within:bg-[#FFFFFF] rounded-xl flex flex-wrap items-center gap-1.5 transition-all">
         {companies.map((company) => (
           <span
             key={company}
-            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs font-medium text-indigo-200 group hover:border-indigo-500/40 transition-all animate-fadeIn"
+            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#FFFFFF] border border-[#E6E5DE] text-xs font-medium text-[#1C1B18] shadow-sm animate-fadeIn"
           >
             <span>{company}</span>
             <button
               type="button"
               onClick={() => removeCompany(company)}
-              className="p-0.5 rounded-full hover:bg-indigo-500/20 text-indigo-400 hover:text-white transition"
+              className="p-0.5 rounded hover:bg-[#FAF9F5] text-[#9E9C92] hover:text-[#1C1B18] transition"
             >
               <X className="w-3 h-3" />
             </button>
@@ -134,33 +134,33 @@ export const CompanyTagger: React.FC<CompanyTaggerProps> = ({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onBlur={() => addCompany(inputValue)}
-          placeholder={companies.length === 0 ? "Type company name or ticker (e.g. Apple, TSMC, NVDA) and press Enter..." : "Add another..."}
-          className="flex-1 min-w-[140px] bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none px-2 py-1 font-mono"
+          placeholder={companies.length === 0 ? "Type entity or ticker (e.g. Apple, TSMC, NVDA) and press Enter..." : "Add entity..."}
+          className="flex-1 min-w-[140px] bg-transparent text-xs text-[#1C1B18] placeholder-[#9E9C92] focus:outline-none px-2 py-1 font-mono"
         />
       </div>
 
       {/* Save Watchlist Inline Modal */}
       {showSaveModal && (
-        <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center space-x-2 animate-fadeIn text-xs">
+        <div className="p-3 bg-[#FFFFFF] border border-[#D5D4CC] rounded-xl flex items-center space-x-2 animate-fadeIn text-xs shadow-sm">
           <input
             type="text"
             value={watchlistName}
             onChange={(e) => setWatchlistName(e.target.value)}
-            placeholder="Watchlist Name (e.g. AI Hardware)"
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white font-mono focus:outline-none focus:border-indigo-500"
+            placeholder="Watchlist Name (e.g. AI Hardware Giants)"
+            className="flex-1 bg-[#FAF9F5] border border-[#E6E5DE] rounded-lg px-3 py-1.5 text-[#1C1B18] font-mono focus:outline-none focus:border-[#1C1B18]"
             autoFocus
           />
           <button
             onClick={handleSaveWatchlist}
             disabled={!watchlistName.trim()}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center space-x-1 disabled:opacity-40"
+            className="px-3.5 py-1.5 rounded-lg bg-[#1C1B18] hover:bg-[#2D2D2D] text-white font-medium flex items-center space-x-1 disabled:opacity-40"
           >
             <Check className="w-3.5 h-3.5" />
-            <span>Save</span>
+            <span>Save to Cloud</span>
           </button>
           <button
             onClick={() => setShowSaveModal(false)}
-            className="px-2 py-1.5 rounded-lg text-slate-400 hover:text-white"
+            className="px-2.5 py-1.5 rounded-lg text-[#68665E] hover:text-[#1C1B18]"
           >
             Cancel
           </button>

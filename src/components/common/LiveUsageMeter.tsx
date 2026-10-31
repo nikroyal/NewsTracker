@@ -12,11 +12,11 @@ export const LiveUsageMeter: React.FC<LiveUsageMeterProps> = ({ telemetry, onMan
     return (
       <div 
         onClick={onManageModelsClick}
-        className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-400 hover:border-slate-700 transition cursor-pointer"
-        title="Configure AI Models & Quotas"
+        className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#FAF9F5] border border-[#E6E5DE] text-xs text-[#68665E] hover:border-[#1C1B18] transition cursor-pointer"
+        title="View Model Orchestrator and registered AI APIs"
       >
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="font-mono">Orchestrator Ready</span>
+        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="font-mono text-[11px]">Orchestrator Standby</span>
       </div>
     );
   }
@@ -31,22 +31,22 @@ export const LiveUsageMeter: React.FC<LiveUsageMeterProps> = ({ telemetry, onMan
   return (
     <div 
       onClick={onManageModelsClick}
-      className="flex items-center space-x-3 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all cursor-pointer shadow-sm group"
-      title="Click to view Model Orchestrator and registered AI APIs"
+      className="flex items-center space-x-3 px-3 py-1.5 rounded-xl bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] transition-all cursor-pointer shadow-xs group"
+      title="Click to open Model Orchestrator"
     >
       {/* Active Model Indicator */}
-      <div className="flex items-center space-x-1.5 border-r border-slate-800 pr-3">
-        <Zap className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-        <span className="text-xs font-medium text-slate-200 font-mono truncate max-w-[120px]">
+      <div className="flex items-center space-x-1.5 border-r border-[#E6E5DE] pr-3">
+        <Zap className="w-3.5 h-3.5 text-amber-600 group-hover:scale-110 transition-transform" />
+        <span className="text-xs font-semibold text-[#1C1B18] font-mono truncate max-w-[120px]">
           {telemetry.model}
         </span>
       </div>
 
       {/* Remaining Tokens */}
       {telemetry.remainingTokens !== undefined && (
-        <div className="flex items-center space-x-1 text-xs font-mono text-slate-400">
-          <span className="text-slate-500">Tokens:</span>
-          <span className="text-emerald-400 font-medium">
+        <div className="flex items-center space-x-1 text-xs font-mono text-[#68665E]">
+          <span className="text-[#9E9C92]">Tokens:</span>
+          <span className="text-emerald-700 font-medium">
             {formatNumber(telemetry.remainingTokens)}
           </span>
         </div>
@@ -54,27 +54,17 @@ export const LiveUsageMeter: React.FC<LiveUsageMeterProps> = ({ telemetry, onMan
 
       {/* Remaining Requests */}
       {telemetry.remainingRequests !== undefined && (
-        <div className="flex items-center space-x-1 text-xs font-mono text-slate-400">
-          <span className="text-slate-500">Req:</span>
-          <span className="text-sky-400 font-medium">
+        <div className="flex items-center space-x-1 text-xs font-mono text-[#68665E]">
+          <span className="text-[#9E9C92]">Req:</span>
+          <span className="text-sky-700 font-medium">
             {formatNumber(telemetry.remainingRequests)}
           </span>
         </div>
       )}
 
-      {/* Dollar Balance (OpenRouter) */}
-      {telemetry.creditBalanceUsd !== undefined && (
-        <div className="flex items-center space-x-1 text-xs font-mono text-slate-400">
-          <Coins className="w-3 h-3 text-amber-400" />
-          <span className="text-amber-300 font-medium">
-            ${telemetry.creditBalanceUsd.toFixed(2)}
-          </span>
-        </div>
-      )}
-
       {/* Latency */}
-      <div className="flex items-center space-x-1 text-xs font-mono text-slate-500 border-l border-slate-800 pl-2">
-        <Clock className="w-3 h-3 text-slate-500" />
+      <div className="flex items-center space-x-1 text-xs font-mono text-[#68665E]">
+        <Clock className="w-3 h-3 text-[#9E9C92]" />
         <span>{telemetry.latencyMs}ms</span>
       </div>
     </div>

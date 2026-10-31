@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { subscribeToAuth, signOut, AuthState } from './lib/auth-service';
 import { PasswordSignIn } from './components/auth/PasswordSignIn';
-import { Navbar } from './components/common/Navbar';
-import { CompanyTagger } from './components/companies/CompanyTagger';
-import { PromptStudio } from './components/prompts/PromptStudio';
-import { ExecutiveReportView } from './components/results/ExecutiveReportView';
-import { ApiKeySettingsModal } from './components/settings/ApiKeySettingsModal';
-import { ModelOrchestratorModal } from './components/settings/ModelOrchestratorModal';
-import { ReportHistoryDrawer } from './components/common/ReportHistoryDrawer';
-import { PdfCustomizerModal } from './components/results/PdfCustomizerModal';
+import { Navbar, NavigationTab } from './components/common/Navbar';
+import { TrackerPage } from './pages/TrackerPage';
+import { OrchestratorPage } from './pages/OrchestratorPage';
+import { ApiKeysPage } from './pages/ApiKeysPage';
+import { HistoryPage } from './pages/HistoryPage';
 
 import {
   PromptPreset,
@@ -18,21 +15,26 @@ import {
   deletePromptPreset,
   loadWatchlists,
   saveWatchlist,
+  loadUniversalApiKeys,
+  saveUniversalApiKeys,
   loadApiKeys,
-  saveApiKeys,
   loadCustomModels,
   saveCustomModels,
   loadReportSnapshots,
   saveReportSnapshot,
+  deleteReportSnapshot,
   loadWorkspaceState,
   saveWorkspaceState,
 } from './lib/firestore-service';
 
-import { AIProviderConfig, ProviderQuotaTelemetry, SynthesisReport } from './types/ai';
+import { AIProviderConfig, ProviderQuotaTelemetry, SynthesisReport, UniversalApiKeyEntry } from './types/ai';
 import { runFullPipeline } from './lib/api-client';
-import { Play, Loader2, Calendar, Globe, AlertCircle } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export function App() {
+  // Navigation State (Full-page views, no popups)
+  const [activeTab, setActiveTab] = useState<NavigationTab>('tracker');
+
   // Authentication State
   const [auth, setAuth] = useState<AuthState>({
     isAuthenticated: false,
@@ -40,10 +42,11 @@ export function App() {
     loading: true,
   });
 
-  // App Configuration & Persistence (All in Cloud Firestore)
+  // App Configuration & Persistence (All in Cloud Firestore, Zero in LocalStorage)
   const [presets, setPresets] = useState<PromptPreset[]>([]);
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [universalKeys, setUniversalKeys] = useState<UniversalApiKeyEntry[]>([]);
+  const [apiKeysDict, setApiKeysDict] = useState<Record<string, string>>({});
   const [customModels, setCustomModels] = useState<AIProviderConfig[]>([]);
   const [snapshots, setSnapshots] = useState<SynthesisReport[]>([]);
 
@@ -62,13 +65,7 @@ export function App() {
   const [currentTelemetry, setCurrentTelemetry] = useState<ProviderQuotaTelemetry | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
 
-  // Modals & Drawers
-  const [isKeysModalOpen, setIsKeysModalOpen] = useState(false);
-  const [isModelsModalOpen, setIsModelsModalOpen] = useState(false);
-  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
-
-  // 1. Subscribe to Password Auth (Direct Firebase Auth state)
+  // 1. Subscribe to Password Auth (Firebase Auth)
   useEffect(() => {
     const unsubscribe = subscribeToAuth((state) => {
       setAuth(state);
@@ -81,9 +78,28 @@ export function App() {
     if (auth.isAuthenticated) {
       loadPromptPresets().then(setPresets);
       loadWatchlists().then(setWatchlists);
-      loadApiKeys().then(setApiKeys);
-      loadCustomModels().then(setCustomModels);
       
+      // Load universal keys and sync to state
+      loadUniversalApiKeys().then(keys => {
+        setUniversalKeys(keys);
+        const dict: Record<string, string> = {};
+        keys.forEach(k => {
+          if (k.apiKey && k.enabled) {
+            dict[k.id] = k.apiKey;
+            const cleanName = k.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+            dict[cleanName] = k.apiKey;
+          }
+        });
+        setApiKeysDict(dict);
+      });
+
+      // Also load legacy dictionary for fallback
+      loadApiKeys().then(dict => {
+        setApiKeysDict(prev => ({ ...dict, ...prev }));
+      });
+
+      loadCustomModels().then(setCustomModels);
+
       // Load active workspace state from Firestore
       loadWorkspaceState().then((ws) => {
         if (ws) {
@@ -140,6 +156,28 @@ export function App() {
     });
   };
 
+  const updateTimeframe = (days: number) => {
+    setTimeframeDays(days);
+    saveWorkspaceState({
+      companies,
+      userPrompt,
+      activeModelId,
+      timeframeDays: days,
+      enableScraper,
+    });
+  };
+
+  const updateScraper = (enabled: boolean) => {
+    setEnableScraper(enabled);
+    saveWorkspaceState({
+      companies,
+      userPrompt,
+      activeModelId,
+      timeframeDays,
+      enableScraper: enabled,
+    });
+  };
+
   // Handle Pipeline Execution
   const handleExecute = async () => {
     if (companies.length === 0) {
@@ -156,7 +194,7 @@ export function App() {
         userPrompt,
         activeProviderId: activeModelId,
         customProviders: customModels,
-        apiKeys,
+        apiKeys: apiKeysDict,
         timeframeDays,
         enableScraper,
       });
@@ -168,7 +206,7 @@ export function App() {
       await saveReportSnapshot(response.report);
       setSnapshots((prev) => [response.report, ...prev.filter((r) => r.id !== response.report.id)]);
     } catch (err: any) {
-      setExecutionError(err.message || 'Execution failed. Please check your network and settings.');
+      setExecutionError(err.message || 'Execution failed. Please check your network and API keys.');
     } finally {
       setIsExecuting(false);
     }
@@ -177,8 +215,8 @@ export function App() {
   // Auth Guard
   if (auth.loading) {
     return (
-      <div className="min-h-screen bg-[#080b11] flex items-center justify-center text-slate-500 font-mono text-xs">
-        <Loader2 className="w-5 h-5 animate-spin text-indigo-400 mr-2" />
+      <div className="min-h-screen bg-[#F4F3EE] flex items-center justify-center text-[#68665E] font-mono text-xs">
+        <Loader2 className="w-5 h-5 animate-spin text-[#1C1B18] mr-2.5" />
         <span>Initializing Platform...</span>
       </div>
     );
@@ -199,26 +237,30 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080b11] text-slate-100 flex flex-col font-['Geist',sans-serif]">
-      {/* Top Navbar */}
+    <div className="min-h-screen bg-[#F4F3EE] text-[#1C1B18] flex flex-col font-['Geist',sans-serif]">
+      {/* Top Navbar with Tab Navigation */}
       <Navbar
+        currentTab={activeTab}
+        onSelectTab={setActiveTab}
         telemetry={currentTelemetry}
-        onOpenKeysModal={() => setIsKeysModalOpen(true)}
-        onOpenModelsModal={() => setIsModelsModalOpen(true)}
-        onOpenHistoryDrawer={() => setIsHistoryDrawerOpen(true)}
         onSignOut={() => signOut()}
       />
 
-      {/* Main Workspace Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Workspace Control Card */}
-        <section className="p-6 bg-slate-900/40 border border-slate-800 rounded-2xl shadow-xl space-y-6">
-          {/* Company Tagger */}
-          <CompanyTagger
+      {/* Main Container for Full-Page Views */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {activeTab === 'tracker' && (
+          <TrackerPage
             companies={companies}
-            onChange={updateCompanies}
+            onChangeCompanies={updateCompanies}
+            userPrompt={userPrompt}
+            onChangePrompt={updateUserPrompt}
+            timeframeDays={timeframeDays}
+            onChangeTimeframe={updateTimeframe}
+            enableScraper={enableScraper}
+            onChangeScraper={updateScraper}
+            activeModelId={activeModelId}
             watchlists={watchlists}
-            onSaveCurrentWatchlist={async (name) => {
+            onSaveWatchlist={async (name) => {
               const newWl: Watchlist = {
                 id: 'wl_' + Date.now().toString(36),
                 name,
@@ -228,12 +270,6 @@ export function App() {
               await saveWatchlist(newWl);
               setWatchlists((prev) => [...prev, newWl]);
             }}
-          />
-
-          {/* Prompt Studio */}
-          <PromptStudio
-            prompt={userPrompt}
-            onChange={updateUserPrompt}
             presets={presets}
             onSavePreset={async (p) => {
               await savePromptPreset(p);
@@ -243,141 +279,70 @@ export function App() {
               await deletePromptPreset(id);
               setPresets((prev) => prev.filter((p) => p.id !== id));
             }}
+            isExecuting={isExecuting}
+            onExecute={handleExecute}
+            executionError={executionError}
+            currentReport={currentReport}
+            onNavigateToOrchestrator={() => setActiveTab('orchestrator')}
           />
+        )}
 
-          {/* Configuration Parameters & Execution Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-800/80">
-            {/* Options */}
-            <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-400">
-              {/* Timeframe */}
-              <div className="flex items-center space-x-1.5">
-                <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Timeframe:</span>
-                <select
-                  value={timeframeDays}
-                  onChange={(e) => {
-                    const days = Number(e.target.value);
-                    setTimeframeDays(days);
-                    saveWorkspaceState({
-                      companies,
-                      userPrompt,
-                      activeModelId,
-                      timeframeDays: days,
-                      enableScraper,
-                    });
-                  }}
-                  className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                >
-                  <option value={3}>Past 3 Days</option>
-                  <option value={7}>Past 7 Days</option>
-                  <option value={14}>Past 14 Days</option>
-                  <option value={30}>Past 30 Days</option>
-                </select>
-              </div>
+        {activeTab === 'orchestrator' && (
+          <OrchestratorPage
+            activeModelId={activeModelId}
+            onSelectActiveModel={updateActiveModel}
+            customModels={customModels}
+            onSaveCustomModels={async (models) => {
+              setCustomModels(models);
+              await saveCustomModels(models);
+            }}
+            telemetry={currentTelemetry}
+          />
+        )}
 
-              {/* Scraper Switch */}
-              <label className="flex items-center space-x-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={enableScraper}
-                  onChange={(e) => {
-                    const val = e.target.checked;
-                    setEnableScraper(val);
-                    saveWorkspaceState({
-                      companies,
-                      userPrompt,
-                      activeModelId,
-                      timeframeDays,
-                      enableScraper: val,
-                    });
-                  }}
-                  className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 focus:ring-offset-0"
-                />
-                <span className="flex items-center space-x-1">
-                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Full-Text Web Scraper</span>
-                </span>
-              </label>
-            </div>
+        {activeTab === 'apikeys' && (
+          <ApiKeysPage
+            keys={universalKeys}
+            onSaveKeys={async (updatedKeys) => {
+              setUniversalKeys(updatedKeys);
+              await saveUniversalApiKeys(updatedKeys);
 
-            {/* Execute Button */}
-            <button
-              onClick={handleExecute}
-              disabled={isExecuting || companies.length === 0}
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl text-xs flex items-center space-x-2 shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
-            >
-              {isExecuting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Aggregating & Synthesizing...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>Execute Tracking & Synthesis</span>
-                </>
-              )}
-            </button>
-          </div>
+              // Update dictionary for pipeline
+              const dict: Record<string, string> = {};
+              updatedKeys.forEach(k => {
+                if (k.apiKey && k.enabled) {
+                  dict[k.id] = k.apiKey;
+                  const cleanName = k.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+                  dict[cleanName] = k.apiKey;
+                }
+              });
+              setApiKeysDict(dict);
+            }}
+          />
+        )}
 
-          {/* Error Message */}
-          {executionError && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{executionError}</span>
-            </div>
-          )}
-        </section>
-
-        {/* Results Section */}
-        {currentReport && (
-          <ExecutiveReportView
-            report={currentReport}
-            onOpenPdfCustomizer={() => setIsPdfModalOpen(true)}
+        {activeTab === 'history' && (
+          <HistoryPage
+            snapshots={snapshots}
+            onDeleteSnapshot={async (id) => {
+              await deleteReportSnapshot(id);
+              setSnapshots((prev) => prev.filter((s) => s.id !== id));
+              if (currentReport?.id === id) {
+                const remaining = snapshots.filter((s) => s.id !== id);
+                setCurrentReport(remaining[0] || null);
+              }
+            }}
+            onSelectForWorkspace={(report) => {
+              setCurrentReport(report);
+              setCurrentTelemetry(report.quotaTelemetry);
+              const compList = Object.keys(report.companyAnalyses || {});
+              if (compList.length > 0) updateCompanies(compList);
+              if (report.userPrompt) updateUserPrompt(report.userPrompt);
+              setActiveTab('tracker');
+            }}
           />
         )}
       </main>
-
-      {/* Modals & Slide-out Drawers */}
-      <ApiKeySettingsModal
-        isOpen={isKeysModalOpen}
-        onClose={() => setIsKeysModalOpen(false)}
-        apiKeys={apiKeys}
-        onSaveKeys={async (updated) => {
-          setApiKeys(updated);
-          await saveApiKeys(updated);
-        }}
-      />
-
-      <ModelOrchestratorModal
-        isOpen={isModelsModalOpen}
-        onClose={() => setIsModelsModalOpen(false)}
-        activeModelId={activeModelId}
-        onSelectActiveModel={updateActiveModel}
-        customModels={customModels}
-        onSaveCustomModels={async (models) => {
-          setCustomModels(models);
-          await saveCustomModels(models);
-        }}
-      />
-
-      <ReportHistoryDrawer
-        isOpen={isHistoryDrawerOpen}
-        onClose={() => setIsHistoryDrawerOpen(false)}
-        snapshots={snapshots}
-        onSelectSnapshot={(report) => {
-          setCurrentReport(report);
-          setCurrentTelemetry(report.quotaTelemetry);
-        }}
-      />
-
-      {currentReport && (
-        <PdfCustomizerModal
-          isOpen={isPdfModalOpen}
-          onClose={() => setIsPdfModalOpen(false)}
-          report={currentReport}
-        />
-      )}
     </div>
   );
 }

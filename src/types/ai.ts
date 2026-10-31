@@ -4,6 +4,23 @@
 
 import { CanonicalArticle } from './news';
 
+export interface UniversalApiKeyEntry {
+  id: string;
+  name: string;               // e.g. "Google Gemini", "Groq Llama 3", "Polygon Financials", "AlphaVantage", "Custom LLM"
+  category: 'ai' | 'data' | 'other';
+  providerType: 'openai-compatible' | 'gemini-v1' | 'anthropic-messages' | 'generic-rest' | 'header-auth';
+  baseUrl?: string;           // endpoint base URL (e.g. https://api.openai.com/v1, https://api.perplexity.ai)
+  apiKey: string;             // secret key or token
+  headerName?: string;        // e.g. "Authorization", "X-Api-Key", "token"
+  headerPrefix?: string;      // e.g. "Bearer", ""
+  queryParamName?: string;    // e.g. "apikey", "token"
+  modelId?: string;           // e.g. "gemini-2.0-flash", "llama-3.3-70b", "gpt-4o"
+  testUrl?: string;           // URL to ping when testing connection
+  enabled: boolean;
+  notes?: string;
+  updatedAt: string;
+}
+
 export interface ProviderQuotaTelemetry {
   providerId: string;
   providerName: string;
