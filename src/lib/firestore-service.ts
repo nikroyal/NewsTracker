@@ -1,11 +1,30 @@
 /**
- * Persistence Layer (Firestore + Local Mirror)
- * Stores saved prompts, watchlists, API keys, custom model configs, and historical report snapshots
+ * Pure Firestore Persistence Layer (100% Cloud-Only, Zero LocalStorage)
+ * All data (prompts, watchlists, API keys, custom models, and past reports) is stored exclusively in Cloud Firestore.
  */
 
 import { db, isFirebaseConfigured } from './firebase';
-import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+  query,
+  orderBy,
+  limit,
+} from 'firebase/firestore';
 import { AIProviderConfig, SynthesisReport } from '../types/ai';
+
+// Clean any legacy localStorage keys to ensure zero local data storage
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.clear();
+  }
+} catch {
+  // Ignore
+}
 
 export interface PromptPreset {
   id: string;
@@ -21,8 +40,16 @@ export interface Watchlist {
   updatedAt: string;
 }
 
-// Default initial prompt presets
-const DEFAULT_PRESETS: PromptPreset[] = [
+export interface WorkspaceState {
+  companies: string[];
+  userPrompt: string;
+  activeModelId: string;
+  timeframeDays: number;
+  enableScraper: boolean;
+}
+
+// Initial default seed presets (seeded into Firestore if collection is empty)
+const INITIAL_PRESETS: PromptPreset[] = [
   {
     id: 'preset_earnings',
     name: 'Earnings, Revenue & Growth Catalysts',
@@ -43,7 +70,7 @@ const DEFAULT_PRESETS: PromptPreset[] = [
   },
 ];
 
-const DEFAULT_WATCHLISTS: Watchlist[] = [
+const INITIAL_WATCHLISTS: Watchlist[] = [
   {
     id: 'wl_tech_giants',
     name: 'Mega-Cap Tech',
@@ -58,164 +85,224 @@ const DEFAULT_WATCHLISTS: Watchlist[] = [
   },
 ];
 
-// --- 1. PROMPT PRESETS ---
+// --- 1. PROMPT PRESETS (Firestore Collection: presets) ---
 export async function loadPromptPresets(): Promise<PromptPreset[]> {
-  const local = localStorage.getItem('newstracker_presets');
-  if (local) {
-    try {
-      const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    } catch {}
-  }
-
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDocs(collection(db, 'presets'));
       if (!snap.empty) {
         const presets: PromptPreset[] = [];
         snap.forEach(d => presets.push(d.data() as PromptPreset));
-        localStorage.setItem('newstracker_presets', JSON.stringify(presets));
         return presets;
       }
-    } catch {}
+      // Seed initial presets into Firestore on first load
+      for (const p of INITIAL_PRESETS) {
+        await setDoc(doc(db, 'presets', p.id), p);
+      }
+      return INITIAL_PRESETS;
+    } catch (e) {
+      console.error('Failed to load prompt presets from Firestore:', e);
+    }
   }
-
-  localStorage.setItem('newstracker_presets', JSON.stringify(DEFAULT_PRESETS));
-  return DEFAULT_PRESETS;
+  return INITIAL_PRESETS;
 }
 
 export async function savePromptPreset(preset: PromptPreset): Promise<void> {
-  const current = await loadPromptPresets();
-  const index = current.findIndex(p => p.id === preset.id);
-  if (index >= 0) {
-    current[index] = preset;
-  } else {
-    current.push(preset);
-  }
-  localStorage.setItem('newstracker_presets', JSON.stringify(current));
-
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'presets', preset.id), preset);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to save prompt preset to Firestore:', e);
+      throw e;
+    }
   }
 }
 
 export async function deletePromptPreset(id: string): Promise<void> {
-  const current = await loadPromptPresets();
-  const filtered = current.filter(p => p.id !== id);
-  localStorage.setItem('newstracker_presets', JSON.stringify(filtered));
-
   if (isFirebaseConfigured && db) {
     try {
       await deleteDoc(doc(db, 'presets', id));
-    } catch {}
+    } catch (e) {
+      console.error('Failed to delete prompt preset from Firestore:', e);
+      throw e;
+    }
   }
 }
 
-// --- 2. WATCHLISTS ---
+// --- 2. WATCHLISTS (Firestore Collection: watchlists) ---
 export async function loadWatchlists(): Promise<Watchlist[]> {
-  const local = localStorage.getItem('newstracker_watchlists');
-  if (local) {
-    try {
-      const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    } catch {}
-  }
-
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDocs(collection(db, 'watchlists'));
       if (!snap.empty) {
         const lists: Watchlist[] = [];
         snap.forEach(d => lists.push(d.data() as Watchlist));
-        localStorage.setItem('newstracker_watchlists', JSON.stringify(lists));
         return lists;
       }
-    } catch {}
+      // Seed initial watchlists into Firestore on first load
+      for (const wl of INITIAL_WATCHLISTS) {
+        await setDoc(doc(db, 'watchlists', wl.id), wl);
+      }
+      return INITIAL_WATCHLISTS;
+    } catch (e) {
+      console.error('Failed to load watchlists from Firestore:', e);
+    }
   }
-
-  localStorage.setItem('newstracker_watchlists', JSON.stringify(DEFAULT_WATCHLISTS));
-  return DEFAULT_WATCHLISTS;
+  return INITIAL_WATCHLISTS;
 }
 
 export async function saveWatchlist(watchlist: Watchlist): Promise<void> {
-  const current = await loadWatchlists();
-  const index = current.findIndex(w => w.id === watchlist.id);
-  if (index >= 0) {
-    current[index] = watchlist;
-  } else {
-    current.push(watchlist);
-  }
-  localStorage.setItem('newstracker_watchlists', JSON.stringify(current));
-
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'watchlists', watchlist.id), watchlist);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to save watchlist to Firestore:', e);
+      throw e;
+    }
   }
 }
 
-// --- 3. API KEYS & CUSTOM MODELS ---
-export async function loadApiKeys(): Promise<Record<string, string>> {
-  const local = localStorage.getItem('newstracker_api_keys');
-  if (local) {
+export async function deleteWatchlist(id: string): Promise<void> {
+  if (isFirebaseConfigured && db) {
     try {
-      return JSON.parse(local);
-    } catch {}
+      await deleteDoc(doc(db, 'watchlists', id));
+    } catch (e) {
+      console.error('Failed to delete watchlist from Firestore:', e);
+      throw e;
+    }
+  }
+}
+
+// --- 3. API KEYS (Firestore Document: settings/api_keys) ---
+export async function loadApiKeys(): Promise<Record<string, string>> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'api_keys'));
+      if (snap.exists()) {
+        const data = snap.data();
+        return data?.keys || {};
+      }
+    } catch (e) {
+      console.error('Failed to load API keys from Firestore:', e);
+    }
   }
   return {};
 }
 
 export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
-  localStorage.setItem('newstracker_api_keys', JSON.stringify(keys));
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'settings', 'api_keys'), { keys, updatedAt: new Date().toISOString() });
-    } catch {}
+      await setDoc(doc(db, 'settings', 'api_keys'), {
+        keys,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Failed to save API keys to Firestore:', e);
+      throw e;
+    }
   }
 }
 
+// --- 4. CUSTOM MODEL REGISTRY (Firestore Document: settings/custom_models) ---
 export async function loadCustomModels(): Promise<AIProviderConfig[]> {
-  const local = localStorage.getItem('newstracker_custom_models');
-  if (local) {
+  if (isFirebaseConfigured && db) {
     try {
-      return JSON.parse(local);
-    } catch {}
+      const snap = await getDoc(doc(db, 'settings', 'custom_models'));
+      if (snap.exists()) {
+        const data = snap.data();
+        return data?.models || [];
+      }
+    } catch (e) {
+      console.error('Failed to load custom models from Firestore:', e);
+    }
   }
   return [];
 }
 
 export async function saveCustomModels(models: AIProviderConfig[]): Promise<void> {
-  localStorage.setItem('newstracker_custom_models', JSON.stringify(models));
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'settings', 'custom_models'), { models, updatedAt: new Date().toISOString() });
-    } catch {}
+      await setDoc(doc(db, 'settings', 'custom_models'), {
+        models,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Failed to save custom models to Firestore:', e);
+      throw e;
+    }
   }
 }
 
-// --- 4. REPORT SNAPSHOTS (Zero Token Waste) ---
-export async function loadReportSnapshots(): Promise<SynthesisReport[]> {
-  const local = localStorage.getItem('newstracker_snapshots');
-  if (local) {
+// --- 5. WORKSPACE ACTIVE STATE (Firestore Document: settings/workspace_state) ---
+export async function loadWorkspaceState(): Promise<WorkspaceState | null> {
+  if (isFirebaseConfigured && db) {
     try {
-      const parsed = JSON.parse(local);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {}
+      const snap = await getDoc(doc(db, 'settings', 'workspace_state'));
+      if (snap.exists()) {
+        return snap.data() as WorkspaceState;
+      }
+    } catch (e) {
+      console.error('Failed to load workspace state from Firestore:', e);
+    }
+  }
+  return null;
+}
+
+export async function saveWorkspaceState(state: WorkspaceState): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'settings', 'workspace_state'), {
+        ...state,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Failed to save workspace state to Firestore:', e);
+    }
+  }
+}
+
+// --- 6. REPORT SNAPSHOTS / HISTORY / PAST CHATS (Firestore Collection: reports) ---
+export async function loadReportSnapshots(): Promise<SynthesisReport[]> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'), limit(30));
+      const snap = await getDocs(q);
+      const reports: SynthesisReport[] = [];
+      snap.forEach(d => reports.push(d.data() as SynthesisReport));
+      return reports;
+    } catch {
+      // Fallback in case composite index is building
+      try {
+        const snap = await getDocs(collection(db, 'reports'));
+        const reports: SynthesisReport[] = [];
+        snap.forEach(d => reports.push(d.data() as SynthesisReport));
+        reports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        return reports.slice(0, 30);
+      } catch (inner) {
+        console.error('Failed to load reports from Firestore:', inner);
+      }
+    }
   }
   return [];
 }
 
 export async function saveReportSnapshot(report: SynthesisReport): Promise<void> {
-  const current = await loadReportSnapshots();
-  // Keep max 20 latest reports
-  const updated = [report, ...current.filter(r => r.id !== report.id)].slice(0, 20);
-  localStorage.setItem('newstracker_snapshots', JSON.stringify(updated));
-
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'reports', report.id), report);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to save report snapshot to Firestore:', e);
+      throw e;
+    }
+  }
+}
+
+export async function deleteReportSnapshot(id: string): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, 'reports', id));
+    } catch (e) {
+      console.error('Failed to delete report snapshot from Firestore:', e);
+    }
   }
 }

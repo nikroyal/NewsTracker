@@ -24,11 +24,13 @@ import {
   saveCustomModels,
   loadReportSnapshots,
   saveReportSnapshot,
+  loadWorkspaceState,
+  saveWorkspaceState,
 } from './lib/firestore-service';
 
 import { AIProviderConfig, ProviderQuotaTelemetry, SynthesisReport } from './types/ai';
 import { runFullPipeline } from './lib/api-client';
-import { Play, Loader2, Calendar, Globe, AlertCircle, RefreshCw } from 'lucide-react';
+import { Play, Loader2, Calendar, Globe, AlertCircle } from 'lucide-react';
 
 export function App() {
   // Authentication State
@@ -38,7 +40,7 @@ export function App() {
     loading: true,
   });
 
-  // App Configuration & Persistence
+  // App Configuration & Persistence (All in Cloud Firestore)
   const [presets, setPresets] = useState<PromptPreset[]>([]);
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
@@ -66,7 +68,7 @@ export function App() {
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
-  // 1. Subscribe to Password Auth
+  // 1. Subscribe to Password Auth (Direct Firebase Auth state)
   useEffect(() => {
     const unsubscribe = subscribeToAuth((state) => {
       setAuth(state);
@@ -74,23 +76,69 @@ export function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Load Persisted Presets, Watchlists, API Keys, and Snapshots
+  // 2. Load 100% of data directly from Cloud Firestore
   useEffect(() => {
     if (auth.isAuthenticated) {
       loadPromptPresets().then(setPresets);
       loadWatchlists().then(setWatchlists);
       loadApiKeys().then(setApiKeys);
       loadCustomModels().then(setCustomModels);
+      
+      // Load active workspace state from Firestore
+      loadWorkspaceState().then((ws) => {
+        if (ws) {
+          if (ws.companies && ws.companies.length > 0) setCompanies(ws.companies);
+          if (ws.userPrompt) setUserPrompt(ws.userPrompt);
+          if (ws.activeModelId) setActiveModelId(ws.activeModelId);
+          if (ws.timeframeDays) setTimeframeDays(ws.timeframeDays);
+          if (ws.enableScraper !== undefined) setEnableScraper(ws.enableScraper);
+        }
+      });
+
+      // Load past reports / history from Firestore
       loadReportSnapshots().then((snaps) => {
         setSnapshots(snaps);
         if (snaps.length > 0 && !currentReport) {
-          // Pre-populate with latest saved run
           setCurrentReport(snaps[0]);
           setCurrentTelemetry(snaps[0].quotaTelemetry);
         }
       });
     }
   }, [auth.isAuthenticated]);
+
+  // Sync workspace state to Firestore
+  const updateCompanies = (newCompanies: string[]) => {
+    setCompanies(newCompanies);
+    saveWorkspaceState({
+      companies: newCompanies,
+      userPrompt,
+      activeModelId,
+      timeframeDays,
+      enableScraper,
+    });
+  };
+
+  const updateUserPrompt = (newPrompt: string) => {
+    setUserPrompt(newPrompt);
+    saveWorkspaceState({
+      companies,
+      userPrompt: newPrompt,
+      activeModelId,
+      timeframeDays,
+      enableScraper,
+    });
+  };
+
+  const updateActiveModel = (modelId: string) => {
+    setActiveModelId(modelId);
+    saveWorkspaceState({
+      companies,
+      userPrompt,
+      activeModelId: modelId,
+      timeframeDays,
+      enableScraper,
+    });
+  };
 
   // Handle Pipeline Execution
   const handleExecute = async () => {
@@ -116,7 +164,7 @@ export function App() {
       setCurrentReport(response.report);
       setCurrentTelemetry(response.telemetry);
 
-      // Persist snapshot to Firestore and local history
+      // Save report snapshot directly to Firestore collection: reports
       await saveReportSnapshot(response.report);
       setSnapshots((prev) => [response.report, ...prev.filter((r) => r.id !== response.report.id)]);
     } catch (err: any) {
@@ -168,7 +216,7 @@ export function App() {
           {/* Company Tagger */}
           <CompanyTagger
             companies={companies}
-            onChange={setCompanies}
+            onChange={updateCompanies}
             watchlists={watchlists}
             onSaveCurrentWatchlist={async (name) => {
               const newWl: Watchlist = {
@@ -185,7 +233,7 @@ export function App() {
           {/* Prompt Studio */}
           <PromptStudio
             prompt={userPrompt}
-            onChange={setUserPrompt}
+            onChange={updateUserPrompt}
             presets={presets}
             onSavePreset={async (p) => {
               await savePromptPreset(p);
@@ -207,7 +255,17 @@ export function App() {
                 <span>Timeframe:</span>
                 <select
                   value={timeframeDays}
-                  onChange={(e) => setTimeframeDays(Number(e.target.value))}
+                  onChange={(e) => {
+                    const days = Number(e.target.value);
+                    setTimeframeDays(days);
+                    saveWorkspaceState({
+                      companies,
+                      userPrompt,
+                      activeModelId,
+                      timeframeDays: days,
+                      enableScraper,
+                    });
+                  }}
                   className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
                 >
                   <option value={3}>Past 3 Days</option>
@@ -222,7 +280,17 @@ export function App() {
                 <input
                   type="checkbox"
                   checked={enableScraper}
-                  onChange={(e) => setEnableScraper(e.target.checked)}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setEnableScraper(val);
+                    saveWorkspaceState({
+                      companies,
+                      userPrompt,
+                      activeModelId,
+                      timeframeDays,
+                      enableScraper: val,
+                    });
+                  }}
                   className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 focus:ring-offset-0"
                 />
                 <span className="flex items-center space-x-1">
@@ -285,7 +353,7 @@ export function App() {
         isOpen={isModelsModalOpen}
         onClose={() => setIsModelsModalOpen(false)}
         activeModelId={activeModelId}
-        onSelectActiveModel={setActiveModelId}
+        onSelectActiveModel={updateActiveModel}
         customModels={customModels}
         onSaveCustomModels={async (models) => {
           setCustomModels(models);
