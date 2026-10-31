@@ -6,11 +6,15 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { DataAggregatorCoordinator } from './aggregators/data';
 import { ModelOrchestrator } from './aggregators/ai/orchestrator';
+import { marketRouter } from './market/routes';
 
 const app = new Hono().basePath('/api');
 
 // CORS middleware
 app.use('*', cors());
+
+// Mount Master Financial Market Router (/api/market/*)
+app.route('/market', marketRouter);
 
 const dataAggregator = new DataAggregatorCoordinator();
 const modelOrchestrator = new ModelOrchestrator();
