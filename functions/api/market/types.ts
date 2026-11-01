@@ -86,6 +86,22 @@ export interface FinancialStatements {
     enterpriseValue: number | null;
     beta: number | null;
   };
+  history?: Array<{
+    date: string;
+    period: string;
+    revenue: number;
+    grossProfit?: number;
+    operatingIncome: number;
+    operatingMargin: number;
+    netIncome: number;
+    netMargin?: number;
+    totalAssets?: number;
+    totalLiabilities?: number;
+    stockholdersEquity?: number;
+    debtToEquity?: number;
+    operatingCashFlow?: number;
+    freeCashFlow?: number;
+  }>;
 }
 
 export interface FinancialRatios {

@@ -10,11 +10,13 @@ import {
   AlertTriangle, 
   Sparkles,
   ArrowRight,
-  Clock
+  Clock,
+  Landmark,
+  BarChart3
 } from 'lucide-react';
-import { fetchMarketIndices } from '../lib/api-client';
+import { fetchMarketIndices, fetchFredIndicators } from '../lib/api-client';
 import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
-import { OpportunitySignal } from '../types/business-os';
+import { OpportunitySignal, FREDIndicator } from '../types/business-os';
 
 const SAMPLE_OPPORTUNITIES: OpportunitySignal[] = [
   {
@@ -57,28 +59,37 @@ const SAMPLE_OPPORTUNITIES: OpportunitySignal[] = [
 
 export const MarketsPage: React.FC = () => {
   const [indices, setIndices] = useState<any[]>([]);
+  const [fredIndicators, setFredIndicators] = useState<FREDIndicator[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingFred, setLoadingFred] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [edgeLatency, setEdgeLatency] = useState<number | null>(null);
 
-  const loadIndicesData = async () => {
+  const loadData = async () => {
     setRefreshing(true);
     const start = performance.now();
     try {
-      const data = await fetchMarketIndices();
-      setIndices(data);
+      const [idxData, fredData] = await Promise.all([
+        fetchMarketIndices().catch(() => []),
+        fetchFredIndicators().catch(() => []),
+      ]);
+      setIndices(idxData);
+      setFredIndicators(fredData);
       setEdgeLatency(Math.round(performance.now() - start));
     } catch (err) {
-      console.warn('Failed to fetch indices:', err);
+      console.warn('Failed to fetch markets/FRED data:', err);
     } finally {
       setLoading(false);
+      setLoadingFred(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadIndicesData();
+    loadData();
   }, []);
+
+  const yieldCurveSpread = fredIndicators.find(i => i.seriesId === 'T10Y2Y');
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -88,22 +99,22 @@ export const MarketsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Compass className="w-5 h-5 text-sky-600" />
             <h1 className="text-xl font-serif font-bold text-[#1C1B18]">
-              Global Markets & Opportunity Scanner
+              Global Markets & Macro Intelligence
             </h1>
           </div>
           <p className="text-xs font-mono text-[#68665E]">
-            Macroeconomic indices, currency crosses, corporate solvency signals, and system telemetry
+            St. Louis Federal Reserve (FRED) macro series, global benchmark indices, and corporate solvency signals
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <ProvenanceBadge
-            category="Macro Data"
-            source="Master Market API Engine"
+            category="Macro Intelligence"
+            source="St. Louis Fed (FRED) & Market Engine"
             confidence="High"
           />
           <button
-            onClick={loadIndicesData}
+            onClick={loadData}
             disabled={refreshing}
             className="px-3 py-1.5 rounded-xl bg-[#FAF9F5] hover:bg-[#FFFFFF] border border-[#E6E5DE] text-xs font-mono text-[#1C1B18] flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
           >
@@ -128,46 +139,39 @@ export const MarketsPage: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="p-12 text-center text-xs font-mono text-[#9E9C92] bg-[#FFFFFF] border border-[#E6E5DE] rounded-2xl">
-            Querying Master Edge API for global market indices...
+          <div className="p-8 text-center text-xs font-mono text-[#68665E]">
+            Querying edge financial market feeds...
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {indices.map(idx => {
-              const isPositive = idx.percentChange >= 0;
+            {indices.map(index => {
+              const isPositive = index.change >= 0;
               return (
                 <div
-                  key={idx.symbol}
-                  className="p-4 bg-[#FFFFFF] border border-[#E6E5DE] rounded-2xl shadow-2xs space-y-2 hover:border-[#1C1B18] transition"
+                  key={index.symbol}
+                  className="p-4 bg-[#FFFFFF] border border-[#E6E5DE] rounded-2xl shadow-2xs hover:shadow-xs transition space-y-2"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono font-bold uppercase text-[#68665E]">
-                      {idx.region}
+                    <span className="text-xs font-mono font-bold text-[#1C1B18]">
+                      {index.name}
                     </span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-[#FAF9F5] border border-[#E6E5DE] text-[#68665E]">
-                      {idx.currency}
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-[#FAF9F5] text-[#68665E] font-mono uppercase">
+                      {index.region}
                     </span>
                   </div>
 
-                  <div>
-                    <h3 className="text-xs font-serif font-bold text-[#1C1B18] line-clamp-1">
-                      {idx.name}
-                    </h3>
-                    <div className="text-base font-mono font-bold text-[#1C1B18] mt-0.5">
-                      {Number(idx.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
+                  <div className="text-base font-serif font-bold text-[#1C1B18]">
+                    {index.currency === 'INR' ? '₹' : index.currency === 'USD' ? '$' : ''}
+                    {index.price ? Number(index.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                   </div>
 
-                  <div className="pt-1 border-t border-[#F2F0EB]">
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold ${
-                        isPositive
-                          ? 'bg-emerald-50 text-emerald-800'
-                          : 'bg-rose-50 text-rose-800'
-                      }`}
-                    >
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className={`flex items-center gap-0.5 font-bold ${isPositive ? 'text-emerald-700' : 'text-red-700'}`}>
                       {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                      <span>{isPositive ? '+' : ''}{Number(idx.percentChange).toFixed(2)}%</span>
+                      {isPositive ? '+' : ''}{index.percentChange?.toFixed(2)}%
+                    </span>
+                    <span className="text-[10px] text-[#9E9C92]">
+                      {isPositive ? '+' : ''}{index.change?.toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -177,17 +181,126 @@ export const MarketsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Opportunity Scanner Section */}
+      {/* FRED MACROECONOMIC INGESTION PIPELINE SECTION */}
       <div className="p-6 bg-[#FFFFFF] border border-[#E6E5DE] rounded-3xl shadow-sm space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-[#E6E5DE]">
-          <div className="flex items-center gap-2">
-            <Lightbulb className="w-4 h-4 text-amber-500" />
-            <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#1C1B18]">
-              Automated Financial Opportunity Scanner
-            </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#E6E5DE]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-800 flex items-center justify-center">
+              <Landmark className="w-4 h-4 text-amber-700" />
+            </div>
+            <div>
+              <h2 className="text-sm font-serif font-bold text-[#1C1B18]">
+                Federal Reserve (FRED) Macroeconomic Indicators
+              </h2>
+              <p className="text-xs font-mono text-[#68665E]">
+                Automated ingestion of St. Louis Fed economic series (Inflation, Policy Rate, Yield Spread, M2)
+              </p>
+            </div>
           </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-800 border border-emerald-200">
-            3 High-Confidence Signals Detected
+
+          <span className="px-2.5 py-1 rounded-xl text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-200">
+            ST. LOUIS FED LIVE FEED
+          </span>
+        </div>
+
+        {/* Yield Curve Warning Banner */}
+        {yieldCurveSpread && (
+          <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-mono ${
+            yieldCurveSpread.value < 0
+              ? 'bg-red-50 border-red-200 text-red-900'
+              : yieldCurveSpread.value <= 0.25
+              ? 'bg-amber-50 border-amber-200 text-amber-900'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+          }`}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className={`w-4 h-4 flex-shrink-0 ${
+                yieldCurveSpread.value < 0 ? 'text-red-600' : 'text-amber-600'
+              }`} />
+              <span>
+                <strong>Yield Curve Signal (10Y-2Y Spread at {yieldCurveSpread.value.toFixed(2)} pts):</strong>{' '}
+                {yieldCurveSpread.value < 0
+                  ? 'Yield curve is INVERTED. Historically high statistical probability of macroeconomic recession.'
+                  : yieldCurveSpread.value <= 0.25
+                  ? 'Yield curve is disinverting near flat boundaries. Transition phase monitoring advised.'
+                  : 'Yield curve slope is healthy and upward-sloping, indicating normal monetary liquidity.'}
+              </span>
+            </div>
+            <span className="font-bold uppercase text-[10px] px-2 py-0.5 rounded bg-white border border-current flex-shrink-0">
+              {yieldCurveSpread.value < 0 ? 'Recession Alert' : 'Normal Term Structure'}
+            </span>
+          </div>
+        )}
+
+        {/* Macro Indicators Grid */}
+        {loadingFred ? (
+          <div className="p-8 text-center text-xs font-mono text-[#68665E]">
+            Syncing Federal Reserve economic series...
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {fredIndicators.map(indicator => {
+              const isRising = indicator.trendDirection === 'Rising';
+              const isFalling = indicator.trendDirection === 'Falling';
+              return (
+                <div
+                  key={indicator.id}
+                  className="p-4 bg-[#FCFAF6] border border-[#E6E5DE] rounded-2xl space-y-2 hover:bg-white transition"
+                >
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-[10px] text-[#68665E] font-bold uppercase">
+                      {indicator.seriesId}
+                    </span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                      indicator.significance === 'Critical'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-indigo-100 text-indigo-800'
+                    }`}>
+                      {indicator.significance}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-serif font-bold text-[#1C1B18]">
+                      {indicator.name}
+                    </div>
+                    <div className="text-2xl font-serif font-bold text-[#1C1B18] mt-1">
+                      {indicator.value}{indicator.unit === '%' ? '%' : ` ${indicator.unit}`}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-[#E6E5DE] flex items-center justify-between text-[11px] font-mono">
+                    <span className={`flex items-center gap-1 font-semibold ${
+                      isRising ? 'text-amber-700' : isFalling ? 'text-emerald-700' : 'text-[#68665E]'
+                    }`}>
+                      {isRising ? <TrendingUp className="w-3 h-3" /> : isFalling ? <TrendingDown className="w-3 h-3" /> : null}
+                      {indicator.trendDirection} ({indicator.change1M >= 0 ? '+' : ''}{indicator.change1M})
+                    </span>
+                    <span className="text-[10px] text-[#9E9C92]">{indicator.date}</span>
+                  </div>
+
+                  <p className="text-[10px] font-mono text-[#68665E] line-clamp-2 leading-tight">
+                    {indicator.explanation}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Quantitative Screener Opportunities */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#68665E]">
+              Quantitative Opportunity Signals
+            </h2>
+            <p className="text-xs text-[#1C1B18] font-serif">
+              Algorithmic screens identifying moat compounding, pristine solvency, and market mispricing
+            </p>
+          </div>
+          <span className="text-xs font-mono text-emerald-700 font-semibold">
+            {SAMPLE_OPPORTUNITIES.length} Active Triggers
           </span>
         </div>
 
@@ -195,12 +308,12 @@ export const MarketsPage: React.FC = () => {
           {SAMPLE_OPPORTUNITIES.map(opp => (
             <div
               key={opp.id}
-              className="p-4 rounded-2xl bg-[#FAF9F5] border border-[#E6E5DE] hover:border-[#1C1B18] transition space-y-3 shadow-2xs"
+              className="p-5 bg-[#FFFFFF] border border-[#E6E5DE] rounded-2xl shadow-xs space-y-3 hover:border-[#1C1B18] transition"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold text-sm text-[#1C1B18]">{opp.ticker}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#FFFFFF] border border-[#E6E5DE] text-[#68665E]">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#FAF9F5] border border-[#E6E5DE] text-[#68665E]">
                     {opp.exchange}
                   </span>
                 </div>
@@ -220,15 +333,15 @@ export const MarketsPage: React.FC = () => {
 
               {/* Quantitative Benchmarks Pill */}
               <div className="pt-2 border-t border-[#E6E5DE] grid grid-cols-3 gap-1 text-[10px] font-mono text-center">
-                <div className="p-1 rounded bg-[#FFFFFF] border border-[#E6E5DE]">
+                <div className="p-1 rounded bg-[#FAF9F5] border border-[#E6E5DE]">
                   <span className="text-[#9E9C92] block">P/E</span>
                   <span className="font-bold text-[#1C1B18]">{opp.metrics.peRatio}x</span>
                 </div>
-                <div className="p-1 rounded bg-[#FFFFFF] border border-[#E6E5DE]">
+                <div className="p-1 rounded bg-[#FAF9F5] border border-[#E6E5DE]">
                   <span className="text-[#9E9C92] block">Altman Z</span>
                   <span className="font-bold text-emerald-700">{opp.metrics.altmanZScore}</span>
                 </div>
-                <div className="p-1 rounded bg-[#FFFFFF] border border-[#E6E5DE]">
+                <div className="p-1 rounded bg-[#FAF9F5] border border-[#E6E5DE]">
                   <span className="text-[#9E9C92] block">DuPont</span>
                   <span className="font-bold text-sky-700">{opp.metrics.dupontRoe ? `${opp.metrics.dupontRoe}%` : 'N/A'}</span>
                 </div>
@@ -238,13 +351,13 @@ export const MarketsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Upstream Platform Health & Architecture Telemetry */}
+      {/* Upstream Diagnostics Telemetry */}
       <div className="p-6 bg-[#FFFFFF] border border-[#E6E5DE] rounded-3xl shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-[#E6E5DE]">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-emerald-600" />
             <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#1C1B18]">
-              Edge Architecture & Upstream Diagnostics
+              Edge Architecture & Diagnostic Telemetry
             </h2>
           </div>
           <span className="text-[11px] font-mono text-emerald-700 font-semibold">
@@ -272,12 +385,12 @@ export const MarketsPage: React.FC = () => {
           </div>
 
           <div className="p-3.5 rounded-2xl bg-[#FAF9F5] border border-[#E6E5DE] space-y-1">
-            <span className="text-[#9E9C92] text-[10px] uppercase font-bold block">Edge Response Cache</span>
+            <span className="text-[#9E9C92] text-[10px] uppercase font-bold block">FRED Ingestion Pipeline</span>
             <div className="flex items-center gap-1.5 font-bold text-emerald-700">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span>SHA-256 ACTIVE</span>
+              <span>ST. LOUIS FED SYNCED</span>
             </div>
-            <p className="text-[10px] text-[#68665E]">Web Crypto 2-hour TTL cache</p>
+            <p className="text-[10px] text-[#68665E]">8 macro series with YoY calculus</p>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-[#FAF9F5] border border-[#E6E5DE] space-y-1">

@@ -12,7 +12,8 @@ import {
   Compass, 
   Search, 
   Sparkles,
-  Command
+  Command,
+  Building2
 } from 'lucide-react';
 import { LiveUsageMeter } from './LiveUsageMeter';
 import { PlatformHealthWidget } from './PlatformHealthWidget';
@@ -21,6 +22,7 @@ import { ProviderQuotaTelemetry } from '../../types/ai';
 export type NavigationTab = 
   | 'tracker' 
   | 'stocks' 
+  | 'intelligence'
   | 'copilot' 
   | 'markets' 
   | 'orchestrator' 
@@ -95,6 +97,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
             <span>Stocks</span>
+          </button>
+
+          <button
+            onClick={() => onSelectTab('intelligence')}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-mono transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+              currentTab === 'intelligence'
+                ? 'bg-[#1C1B18] text-white font-semibold shadow-xs'
+                : 'text-[#68665E] hover:text-[#1C1B18] hover:bg-[#FAF9F5]'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+            <span>SEC & Intel</span>
           </button>
 
           <button

@@ -153,3 +153,54 @@ export async function searchMarketSymbols(query: string): Promise<Array<{
   const data = await response.json();
   return data.results || [];
 }
+
+export async function fetchFredIndicators(apiKey?: string): Promise<any[]> {
+  const url = apiKey ? `/api/market/fred?apiKey=${encodeURIComponent(apiKey)}` : '/api/market/fred';
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch FRED indicators (${response.status})`);
+  }
+  const data = await response.json();
+  return data.indicators || [];
+}
+
+export async function fetchSecFilings(ticker: string): Promise<any> {
+  if (!ticker) return null;
+  const response = await fetch(`/api/market/sec?ticker=${encodeURIComponent(ticker)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch SEC filings for ${ticker} (${response.status})`);
+  }
+  return await response.json();
+}
+
+export async function fetchFinancials(symbol: string): Promise<any> {
+  if (!symbol) return null;
+  const response = await fetch(`/api/market/financials?symbol=${encodeURIComponent(symbol)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch financials for ${symbol} (${response.status})`);
+  }
+  return await response.json();
+}
+
+export async function runBenchmarkArena(params: {
+  prompt: string;
+  providerId: string;
+  model?: string;
+  systemPrompt?: string;
+  apiKeys?: Record<string, string>;
+  customProviders?: any[];
+}): Promise<{ record: any; trace: any }> {
+  const response = await fetch('/api/orchestrator/benchmark', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `Benchmark run failed with status ${response.status}`);
+  }
+
+  return await response.json();
+}
+

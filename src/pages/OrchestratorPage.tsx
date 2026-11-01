@@ -23,6 +23,7 @@ import {
 import { AIProviderConfig, ProviderQuotaTelemetry } from '../types/ai';
 import { testEndpointConnection } from '../lib/api-client';
 import { INITIAL_AI_PROVIDERS } from '../lib/firestore-service';
+import { BenchmarkLab } from '../components/ai-ops/BenchmarkLab';
 
 interface OrchestratorPageProps {
   activeModelId: string;
@@ -44,6 +45,7 @@ export const OrchestratorPage: React.FC<OrchestratorPageProps> = ({
     customModels.length > 0 ? customModels : INITIAL_AI_PROVIDERS
   );
 
+  const [activeView, setActiveView] = useState<'routing' | 'benchmark'>('routing');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
 
@@ -298,6 +300,37 @@ export const OrchestratorPage: React.FC<OrchestratorPageProps> = ({
         </div>
       </div>
 
+      {/* View Switcher: Routing vs Benchmark Lab */}
+      <div className="flex items-center space-x-2 bg-[#FAF9F5] p-1 rounded-2xl border border-[#E6E5DE] w-fit">
+        <button
+          onClick={() => setActiveView('routing')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
+            activeView === 'routing'
+              ? 'bg-[#1C1B18] text-white font-bold shadow-xs'
+              : 'text-[#68665E] hover:text-[#1C1B18]'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          <span>Model Routing & Failover Sequence</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('benchmark')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
+            activeView === 'benchmark'
+              ? 'bg-[#1C1B18] text-white font-bold shadow-xs'
+              : 'text-[#68665E] hover:text-[#1C1B18]'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+          <span>AI-Ops Benchmark Lab & Trace Inspector</span>
+        </button>
+      </div>
+
+      {activeView === 'benchmark' ? (
+        <BenchmarkLab customModels={models} apiKeysDict={{}} />
+      ) : (
+        <>
       {/* Live Telemetry Card */}
       <section className="p-5 bg-[#FFFFFF] border border-[#E6E5DE] rounded-2xl shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-[#E6E5DE] pb-3">
@@ -680,6 +713,8 @@ export const OrchestratorPage: React.FC<OrchestratorPageProps> = ({
           })}
         </div>
       </section>
+        </>
+      )}
     </div>
   );
 };

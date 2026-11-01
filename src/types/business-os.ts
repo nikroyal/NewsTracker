@@ -92,3 +92,116 @@ export interface OnboardingProgress {
   completedTasks: string[];
   lastDismissedAt?: string;
 }
+
+export interface PortfolioHolding {
+  id: string;
+  ticker: string;
+  symbol: string;
+  name: string;
+  exchange: 'NASDAQ' | 'NYSE' | 'NSE' | 'BSE' | string;
+  currency: 'USD' | 'INR' | string;
+  assetClass: 'Equity' | 'ETF' | 'Cash' | 'Crypto' | 'Commodity' | string;
+  quantity: number;
+  purchasePrice: number;
+  purchaseDate?: string;
+  currentPrice?: number;
+  totalCost: number;
+  currentValue?: number;
+  unrealizedPnL?: number;
+  unrealizedPnLPercent?: number;
+  notes?: string;
+  lastUpdated?: string;
+}
+
+export interface FREDIndicator {
+  id: string;
+  seriesId: string;
+  name: string;
+  value: number;
+  unit: string;
+  trendDirection: 'Rising' | 'Falling' | 'Flat';
+  significance: 'Critical' | 'High' | 'Medium';
+  explanation: string;
+  timestamp: string;
+  source: string;
+  confidence: 'High' | 'Medium' | 'Low';
+  date: string;
+  change1M: number;
+  observations?: { date: string; value: number }[];
+}
+
+export interface SECFilingItem {
+  id: string;
+  form: '10-K' | '10-Q' | '8-K' | 'Form 4' | '13F' | string;
+  filingDate: string;
+  reportDate: string;
+  url: string;
+  summary: string;
+  accessionNumber: string;
+  primaryDocument: string;
+  cik: string;
+  ticker: string;
+  companyName: string;
+}
+
+export interface HistoricalStatementPeriod {
+  date: string;
+  period: string;
+  revenue: number;
+  grossProfit?: number;
+  operatingIncome: number;
+  operatingMargin: number;
+  netIncome: number;
+  netMargin?: number;
+  totalAssets?: number;
+  totalLiabilities?: number;
+  stockholdersEquity?: number;
+  debtToEquity?: number;
+  operatingCashFlow?: number;
+  capitalExpenditures?: number;
+  freeCashFlow?: number;
+  freeCashFlowMargin?: number;
+}
+
+export interface BenchmarkRecord {
+  id: string;
+  provider: string;
+  modelId: string;
+  prompt: string;
+  response: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  latencyMs: number;
+  costUsd: number;
+  finishReason: string;
+  cacheHit: boolean;
+  timestamp: string;
+  error?: string;
+}
+
+export interface ExecutionTraceStage {
+  name: string;
+  status: 'completed' | 'cached' | 'skipped' | 'failed';
+  durationMs: number;
+  details: Record<string, any>;
+}
+
+export interface ExecutionTrace {
+  id: string;
+  timestamp: string;
+  feature: string;
+  selectedModel: string;
+  fallbackModel?: string;
+  provider: string;
+  success: boolean;
+  cachedResponse: boolean;
+  latencyMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  promptPreview: string;
+  responsePreview: string;
+  stages: ExecutionTraceStage[];
+}
+

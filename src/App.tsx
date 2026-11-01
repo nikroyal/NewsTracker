@@ -4,6 +4,7 @@ import { PasswordSignIn } from './components/auth/PasswordSignIn';
 import { Navbar, NavigationTab } from './components/common/Navbar';
 import { TrackerPage } from './pages/TrackerPage';
 import { WatchlistPage } from './pages/WatchlistPage';
+import { IntelligenceHubPage } from './pages/IntelligenceHubPage';
 import { CopilotPage } from './pages/CopilotPage';
 import { MarketsPage } from './pages/MarketsPage';
 import { OrchestratorPage } from './pages/OrchestratorPage';
@@ -351,6 +352,10 @@ export function App() {
 
         {activeTab === 'stocks' && (
           <WatchlistPage />
+        )}
+
+        {activeTab === 'intelligence' && (
+          <IntelligenceHubPage />
         )}
 
         {activeTab === 'copilot' && (

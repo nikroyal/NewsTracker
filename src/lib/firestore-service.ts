@@ -16,7 +16,7 @@ import {
   limit,
 } from 'firebase/firestore';
 import { AIProviderConfig, SynthesisReport, UniversalApiKeyEntry } from '../types/ai';
-import { TrackedStock, CopilotSession, OnboardingProgress } from '../types/business-os';
+import { TrackedStock, CopilotSession, OnboardingProgress, PortfolioHolding } from '../types/business-os';
 
 // Clean any legacy localStorage keys to ensure zero local data storage
 try {
@@ -525,3 +525,135 @@ export async function saveOnboardingProgress(progress: OnboardingProgress): Prom
     }
   }
 }
+
+// --- 10. PORTFOLIO HOLDINGS & COST-BASIS LEDGER (Firestore Collection: portfolio_holdings) ---
+export const INITIAL_PORTFOLIO_HOLDINGS: PortfolioHolding[] = [
+  {
+    id: 'hold_aapl',
+    ticker: 'AAPL',
+    symbol: 'AAPL',
+    name: 'Apple Inc.',
+    exchange: 'NASDAQ',
+    currency: 'USD',
+    assetClass: 'Equity',
+    quantity: 50,
+    purchasePrice: 185.50,
+    purchaseDate: '2024-01-15',
+    currentPrice: 224.23,
+    totalCost: 50 * 185.50,
+    currentValue: 50 * 224.23,
+    unrealizedPnL: 50 * 224.23 - 50 * 185.50,
+    unrealizedPnLPercent: ((224.23 - 185.50) / 185.50) * 100,
+    notes: 'Core consumer ecosystem anchor',
+    lastUpdated: new Date().toISOString(),
+  },
+  {
+    id: 'hold_nvda',
+    ticker: 'NVDA',
+    symbol: 'NVDA',
+    name: 'NVIDIA Corporation',
+    exchange: 'NASDAQ',
+    currency: 'USD',
+    assetClass: 'Equity',
+    quantity: 40,
+    purchasePrice: 118.20,
+    purchaseDate: '2024-03-20',
+    currentPrice: 138.25,
+    totalCost: 40 * 118.20,
+    currentValue: 40 * 138.25,
+    unrealizedPnL: 40 * 138.25 - 40 * 118.20,
+    unrealizedPnLPercent: ((138.25 - 118.20) / 118.20) * 100,
+    notes: 'Accelerated compute infrastructure',
+    lastUpdated: new Date().toISOString(),
+  },
+  {
+    id: 'hold_msft',
+    ticker: 'MSFT',
+    symbol: 'MSFT',
+    name: 'Microsoft Corporation',
+    exchange: 'NASDAQ',
+    currency: 'USD',
+    assetClass: 'Equity',
+    quantity: 25,
+    purchasePrice: 412.00,
+    purchaseDate: '2024-02-10',
+    currentPrice: 428.15,
+    totalCost: 25 * 412.00,
+    currentValue: 25 * 428.15,
+    unrealizedPnL: 25 * 428.15 - 25 * 412.00,
+    unrealizedPnLPercent: ((428.15 - 412.00) / 412.00) * 100,
+    notes: 'Enterprise cloud and OpenAI partnership',
+    lastUpdated: new Date().toISOString(),
+  },
+  {
+    id: 'hold_reliance',
+    ticker: 'RELIANCE',
+    symbol: 'RELIANCE.NS',
+    name: 'Reliance Industries Ltd.',
+    exchange: 'NSE',
+    currency: 'INR',
+    assetClass: 'Equity',
+    quantity: 100,
+    purchasePrice: 2850.00,
+    purchaseDate: '2024-04-05',
+    currentPrice: 2985.40,
+    totalCost: 100 * 2850.00,
+    currentValue: 100 * 2985.40,
+    unrealizedPnL: 100 * 2985.40 - 100 * 2850.00,
+    unrealizedPnLPercent: ((2985.40 - 2850.00) / 2850.00) * 100,
+    notes: 'India digital telecom & retail conglomerate',
+    lastUpdated: new Date().toISOString(),
+  },
+];
+
+export async function loadPortfolioHoldings(): Promise<PortfolioHolding[]> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(collection(db, 'portfolio_holdings'), orderBy('ticker', 'asc'));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return snap.docs.map(d => d.data() as PortfolioHolding);
+      }
+      // Populate defaults if collection is empty
+      await saveBatchPortfolioHoldings(INITIAL_PORTFOLIO_HOLDINGS);
+      return INITIAL_PORTFOLIO_HOLDINGS;
+    } catch (e) {
+      console.error('Failed to load portfolio holdings from Firestore:', e);
+    }
+  }
+  return INITIAL_PORTFOLIO_HOLDINGS;
+}
+
+export async function savePortfolioHolding(holding: PortfolioHolding): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'portfolio_holdings', holding.id), holding);
+    } catch (e) {
+      console.error('Failed to save portfolio holding:', e);
+    }
+  }
+}
+
+export async function saveBatchPortfolioHoldings(holdings: PortfolioHolding[]): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    const firestore = db;
+    try {
+      await Promise.all(
+        holdings.map(h => setDoc(doc(firestore, 'portfolio_holdings', h.id), h))
+      );
+    } catch (e) {
+      console.error('Failed to save batch portfolio holdings:', e);
+    }
+  }
+}
+
+export async function deletePortfolioHolding(id: string): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, 'portfolio_holdings', id));
+    } catch (e) {
+      console.error('Failed to delete portfolio holding:', e);
+    }
+  }
+}
+

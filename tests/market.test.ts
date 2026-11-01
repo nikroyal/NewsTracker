@@ -186,4 +186,63 @@ describe('Master Market API Router (/api/market/*)', () => {
     expect(data.content).toBeDefined();
     expect(data.telemetry).toBeDefined();
   });
+
+  it('serves St. Louis Fed macroeconomic series on GET /api/market/fred', async () => {
+    const res = await app.request('/api/market/fred');
+    expect(res.status).toBe(200);
+
+    const data: any = await res.json();
+    expect(data.status).toBe('online');
+    expect(Array.isArray(data.indicators)).toBe(true);
+    expect(data.indicators.length).toBeGreaterThanOrEqual(7);
+
+    // Verify critical series
+    const cpi = data.indicators.find((i: any) => i.seriesId === 'CPIAUCSL');
+    expect(cpi).toBeDefined();
+    expect(cpi.name).toContain('CPI');
+    expect(cpi.trendDirection).toBeDefined();
+
+    const yieldSpread = data.indicators.find((i: any) => i.seriesId === 'T10Y2Y');
+    expect(yieldSpread).toBeDefined();
+    expect(yieldSpread.name).toContain('Yield Curve Spread');
+  });
+
+  it('serves SEC EDGAR regulatory filings on GET /api/market/sec', async () => {
+    // US Equities
+    const resUS = await app.request('/api/market/sec?ticker=AAPL');
+    expect(resUS.status).toBe(200);
+    const dataUS: any = await resUS.json();
+    expect(dataUS.ticker).toBe('AAPL');
+    expect(dataUS.hasSecCoverage).toBe(true);
+    expect(Array.isArray(dataUS.recentFilings)).toBe(true);
+    expect(dataUS.recentFilings.some((f: any) => f.form === '10-K')).toBe(true);
+
+    // Indian Equities (NSE disclosures)
+    const resIndia = await app.request('/api/market/sec?ticker=RELIANCE.NS');
+    expect(resIndia.status).toBe(200);
+    const dataIndia: any = await resIndia.json();
+    expect(dataIndia.market).toContain('India');
+    expect(Array.isArray(dataIndia.recentFilings)).toBe(true);
+  });
+
+  it('runs multi-model prompt benchmark tournament on POST /api/orchestrator/benchmark', async () => {
+    const res = await app.request('/api/orchestrator/benchmark', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: 'Provide concise bullet points of Q3 financial risks.',
+        providerId: 'gemini',
+        model: 'gemini-2.0-flash',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.record).toBeDefined();
+    expect(data.record.provider).toBe('gemini');
+    expect(data.record.response).toBeDefined();
+    expect(data.trace).toBeDefined();
+    expect(Array.isArray(data.trace.stages)).toBe(true);
+    expect(data.trace.stages.length).toBe(5);
+  });
 });
