@@ -160,4 +160,30 @@ describe('Master Market API Router (/api/market/*)', () => {
     const data: any = await res.json();
     expect(data.error).toContain('symbol');
   });
+
+  it('serves global benchmark indices on GET /api/market/indices', async () => {
+    const res = await app.request('/api/market/indices');
+    expect(res.status).toBe(200);
+
+    const data: any = await res.json();
+    expect(data.status).toBe('online');
+    expect(Array.isArray(data.indices)).toBe(true);
+  });
+
+  it('handles financial copilot queries on POST /api/copilot/chat', async () => {
+    const res = await app.request('/api/copilot/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: 'Evaluate DuPont ROE and Altman Z score for Apple and Microsoft.',
+        contextStocks: ['AAPL', 'MSFT'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.role).toBe('assistant');
+    expect(data.content).toBeDefined();
+    expect(data.telemetry).toBeDefined();
+  });
 });

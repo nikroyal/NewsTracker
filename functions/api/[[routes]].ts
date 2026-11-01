@@ -137,6 +137,86 @@ app.post('/pipeline/run', async (c) => {
   }
 });
 
+// 3.5. AI Financial Copilot Chat
+app.post('/copilot/chat', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { message, history = [], contextStocks = [], apiKeys = {}, customProviders = [], activeProviderId } = body;
+
+    if (!message || typeof message !== 'string') {
+      return c.json({ error: 'Field "message" is required' }, 400);
+    }
+
+    // Fetch real-time market data for context stocks
+    const marketSnapshots: Record<string, any> = {};
+    if (Array.isArray(contextStocks) && contextStocks.length > 0) {
+      const symbolsToFetch = contextStocks.slice(0, 6).map((s: any) => typeof s === 'string' ? s : (s.symbol || s.ticker));
+      const quotes = await marketYahoo.getBatchQuotes(symbolsToFetch).catch(() => ({}));
+      for (const [sym, q] of Object.entries(quotes) as Array<[string, any]>) {
+        marketSnapshots[sym] = {
+          price: `${q?.currency || 'USD'} ${q?.lastPrice ?? 'N/A'}`,
+          change: `${(q?.percentChange || 0) >= 0 ? '+' : ''}${q?.percentChange?.toFixed(2) ?? '0.00'}%`,
+          marketCap: q?.marketCap ?? '—',
+          peRatio: q?.peRatio ? `${q.peRatio}x` : 'N/A',
+        };
+      }
+    }
+
+    let formattedMarketData = '';
+    if (Object.keys(marketSnapshots).length > 0) {
+      formattedMarketData = '\n\n[LIVE MARKET CONTEXT FOR TRACKED EQUITIES]:\n' +
+        Object.entries(marketSnapshots)
+          .map(([sym, data]) => `- ${sym}: Price: ${data.price} (${data.change}) | P/E: ${data.peRatio} | Mkt Cap: ${data.marketCap}`)
+          .join('\n');
+    }
+
+    const conversationContext = (history.slice(-4) as Array<{ role: string; content: string }>)
+      .map(h => `${h.role === 'user' ? 'User' : 'Copilot'}: ${h.content}`)
+      .join('\n');
+
+    const prompt = `You are an Elite Wall Street Financial Research Copilot and Portfolio Strategist.
+Provide an insightful, balanced, and quantitatively grounded financial response.
+
+CONVERSATION HISTORY:
+${conversationContext || '(No previous messages)'}
+${formattedMarketData}
+
+USER QUERY:
+${message}
+
+Please deliver an executive-grade, rigorous answer. Highlight bull cases, bear cases, valuation considerations, and key risks to watch. Format cleanly with concise paragraphs and bullet points.`;
+
+    const result = await modelOrchestrator.synthesize({
+      companies: contextStocks.slice(0, 3).map((s: any) => typeof s === 'string' ? s : s.ticker),
+      userPrompt: prompt,
+      partitionedArticles: {},
+      apiKeys,
+      customProviders,
+      activeProviderId,
+    });
+
+    const replyContent = result.report?.globalSummary || 'Analysis complete.';
+
+    return c.json({
+      role: 'assistant',
+      content: replyContent,
+      timestamp: new Date().toISOString(),
+      modelUsed: result.report.modelUsed,
+      providerUsed: result.report.providerUsed,
+      cached: result.report.cached || false,
+      costSavedUsd: result.report.costSavedUsd || 0,
+      financialMetricsSnapshot: Object.entries(marketSnapshots).map(([sym, data]) => ({
+        ticker: sym,
+        price: data.price,
+        peRatio: data.peRatio,
+      })),
+      telemetry: result.telemetry,
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message || 'Copilot query failed' }, 500);
+  }
+});
+
 // 4. In-UI Connection Ping & Deep Probe Identifier
 app.post('/sources/test', async (c) => {
   const start = Date.now();

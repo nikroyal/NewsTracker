@@ -293,3 +293,38 @@ marketRouter.get('/overview', async (c) => {
     return c.json({ error: error.message || 'Failed to generate financial overview' }, 500);
   }
 });
+
+// 12. Global Benchmark Market Indices & Macro Snapshot
+marketRouter.get('/indices', async (c) => {
+  const indexSymbols = ['^GSPC', '^IXIC', '^NSEI', '^BSESN', 'INR=X', '^TNX'];
+  try {
+    const quotes = await yahoo.getBatchQuotes(indexSymbols);
+    const names: Record<string, { name: string; region: 'US' | 'India' | 'Global' }> = {
+      '^GSPC': { name: 'S&P 500', region: 'US' },
+      '^IXIC': { name: 'NASDAQ Composite', region: 'US' },
+      '^NSEI': { name: 'NIFTY 50', region: 'India' },
+      '^BSESN': { name: 'BSE SENSEX', region: 'India' },
+      'INR=X': { name: 'USD / INR Rate', region: 'Global' },
+      '^TNX': { name: '10-Yr Treasury Yield', region: 'US' },
+    };
+
+    const formatted = Object.entries(quotes).map(([symbol, q]: [string, any]) => ({
+      symbol,
+      name: names[symbol]?.name || q?.companyName || symbol,
+      region: names[symbol]?.region || 'Global',
+      price: q?.lastPrice ?? 0,
+      change: q?.change ?? 0,
+      percentChange: q?.percentChange ?? 0,
+      currency: q?.currency || 'USD',
+      lastUpdated: new Date().toISOString(),
+    }));
+
+    return c.json({
+      status: 'online',
+      indices: formatted,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message || 'Failed to fetch market indices' }, 500);
+  }
+});

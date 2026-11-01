@@ -16,6 +16,7 @@ import {
   limit,
 } from 'firebase/firestore';
 import { AIProviderConfig, SynthesisReport, UniversalApiKeyEntry } from '../types/ai';
+import { TrackedStock, CopilotSession, OnboardingProgress } from '../types/business-os';
 
 // Clean any legacy localStorage keys to ensure zero local data storage
 try {
@@ -394,6 +395,133 @@ export async function deleteReportSnapshot(id: string): Promise<void> {
       await deleteDoc(doc(db, 'reports', id));
     } catch (e) {
       console.error('Failed to delete report snapshot from Firestore:', e);
+    }
+  }
+}
+
+// --- 7. TRACKED STOCKS / WATCHLIST LEDGER (Firestore Collection: tracked_stocks) ---
+export const INITIAL_TRACKED_STOCKS: TrackedStock[] = [
+  { id: 'stock_aapl', ticker: 'AAPL', symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', country: 'US', currency: 'USD', addedAt: new Date().toISOString() },
+  { id: 'stock_nvda', ticker: 'NVDA', symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ', country: 'US', currency: 'USD', addedAt: new Date().toISOString() },
+  { id: 'stock_msft', ticker: 'MSFT', symbol: 'MSFT', name: 'Microsoft Corporation', exchange: 'NASDAQ', country: 'US', currency: 'USD', addedAt: new Date().toISOString() },
+  { id: 'stock_reliance', ticker: 'RELIANCE', symbol: 'RELIANCE.NS', name: 'Reliance Industries Ltd.', exchange: 'NSE', country: 'India', currency: 'INR', addedAt: new Date().toISOString() },
+  { id: 'stock_tcs', ticker: 'TCS', symbol: 'TCS.NS', name: 'Tata Consultancy Services', exchange: 'NSE', country: 'India', currency: 'INR', addedAt: new Date().toISOString() },
+  { id: 'stock_hdfc', ticker: 'HDFCBANK', symbol: 'HDFCBANK.NS', name: 'HDFC Bank Limited', exchange: 'NSE', country: 'India', currency: 'INR', addedAt: new Date().toISOString() },
+];
+
+export async function loadTrackedStocks(): Promise<TrackedStock[]> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDocs(collection(db, 'tracked_stocks'));
+      if (!snap.empty) {
+        const stocks: TrackedStock[] = [];
+        snap.forEach(d => stocks.push(d.data() as TrackedStock));
+        return stocks;
+      }
+      // Seed default stocks if collection is empty
+      for (const s of INITIAL_TRACKED_STOCKS) {
+        await setDoc(doc(db, 'tracked_stocks', s.id), s);
+      }
+      return INITIAL_TRACKED_STOCKS;
+    } catch (e) {
+      console.error('Failed to load tracked stocks from Firestore:', e);
+    }
+  }
+  return INITIAL_TRACKED_STOCKS;
+}
+
+export async function saveTrackedStock(stock: TrackedStock): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'tracked_stocks', stock.id), stock);
+    } catch (e) {
+      console.error('Failed to save tracked stock to Firestore:', e);
+      throw e;
+    }
+  }
+}
+
+export async function deleteTrackedStock(id: string): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, 'tracked_stocks', id));
+    } catch (e) {
+      console.error('Failed to delete tracked stock from Firestore:', e);
+    }
+  }
+}
+
+// --- 8. AI COPILOT CHAT SESSIONS (Firestore Collection: copilot_sessions) ---
+export async function loadCopilotSessions(): Promise<CopilotSession[]> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(collection(db, 'copilot_sessions'), orderBy('updatedAt', 'desc'), limit(30));
+      const snap = await getDocs(q);
+      const sessions: CopilotSession[] = [];
+      snap.forEach(d => sessions.push(d.data() as CopilotSession));
+      return sessions;
+    } catch {
+      try {
+        const snap = await getDocs(collection(db, 'copilot_sessions'));
+        const sessions: CopilotSession[] = [];
+        snap.forEach(d => sessions.push(d.data() as CopilotSession));
+        sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        return sessions.slice(0, 30);
+      } catch (inner) {
+        console.error('Failed to load copilot sessions:', inner);
+      }
+    }
+  }
+  return [];
+}
+
+export async function saveCopilotSession(session: CopilotSession): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'copilot_sessions', session.id), session);
+    } catch (e) {
+      console.error('Failed to save copilot session to Firestore:', e);
+    }
+  }
+}
+
+export async function deleteCopilotSession(id: string): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, 'copilot_sessions', id));
+    } catch (e) {
+      console.error('Failed to delete copilot session:', e);
+    }
+  }
+}
+
+// --- 9. ONBOARDING & SETUP PROGRESS (Firestore Document: settings/onboarding) ---
+export async function loadOnboardingProgress(): Promise<OnboardingProgress> {
+  const defaultProgress: OnboardingProgress = {
+    hasCompletedTour: false,
+    checklistDismissed: false,
+    completedTasks: [],
+  };
+
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'onboarding'));
+      if (snap.exists()) {
+        return snap.data() as OnboardingProgress;
+      }
+    } catch (e) {
+      console.error('Failed to load onboarding progress:', e);
+    }
+  }
+  return defaultProgress;
+}
+
+export async function saveOnboardingProgress(progress: OnboardingProgress): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'settings', 'onboarding'), progress);
+    } catch (e) {
+      console.error('Failed to save onboarding progress:', e);
     }
   }
 }

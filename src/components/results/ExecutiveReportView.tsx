@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SynthesisReport, CompanyAnalysis } from '../../types/ai';
+import { ProvenanceBadge } from '../common/ProvenanceBadge';
 
 interface ExecutiveReportViewProps {
   report: SynthesisReport;
@@ -165,6 +166,89 @@ export const ExecutiveReportView: React.FC<ExecutiveReportViewProps> = ({
 
               {getSentimentBadge(currentAnalysis.sentimentLabel, currentAnalysis.sentimentScore)}
             </div>
+
+            {/* Master Financial Market Snapshot Card */}
+            {report.companyMarketData?.[selectedCompany] && (
+              <div className="p-4 rounded-2xl bg-[#FAF9F5] border border-[#E6E5DE] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#1C1B18]">
+                      Quantitative Valuation & Health Overview
+                    </span>
+                  </div>
+                  <ProvenanceBadge
+                    category="Real Market Data"
+                    source="Master Market Engine"
+                    confidence="High"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                  {report.companyMarketData[selectedCompany].quote && (
+                    <>
+                      <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#E6E5DE]">
+                        <span className="text-[#9E9C92] text-[10px] block">Stock Price</span>
+                        <span className="font-bold text-[#1C1B18]">
+                          {report.companyMarketData[selectedCompany].quote.currency} {report.companyMarketData[selectedCompany].quote.lastPrice}
+                        </span>
+                        <span className={`text-[10px] block font-semibold ${
+                          (report.companyMarketData[selectedCompany].quote.percentChange || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                        }`}>
+                          {(report.companyMarketData[selectedCompany].quote.percentChange || 0) >= 0 ? '+' : ''}
+                          {Number(report.companyMarketData[selectedCompany].quote.percentChange || 0).toFixed(2)}%
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#E6E5DE]">
+                        <span className="text-[#9E9C92] text-[10px] block">Trailing P/E</span>
+                        <span className="font-bold text-[#1C1B18]">
+                          {report.companyMarketData[selectedCompany].ratios?.valuation?.trailingPE || report.companyMarketData[selectedCompany].quote.peRatio || 'N/A'}x
+                        </span>
+                        <span className="text-[#9E9C92] text-[10px] block">
+                          Cap: {report.companyMarketData[selectedCompany].quote.marketCap || '—'}
+                        </span>
+                      </div>
+                    </>
+                  )}
+
+                  {report.companyMarketData[selectedCompany].dupont?.threeStage && (
+                    <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-200">
+                      <span className="text-emerald-900 text-[10px] block font-semibold">DuPont 3-Stage ROE</span>
+                      <span className="font-bold text-emerald-900 text-sm">
+                        {report.companyMarketData[selectedCompany].dupont.threeStage.returnOnEquity}%
+                      </span>
+                      <span className="text-emerald-800 text-[10px] block truncate">
+                        Margin: {report.companyMarketData[selectedCompany].dupont.threeStage.netProfitMargin}
+                      </span>
+                    </div>
+                  )}
+
+                  {report.companyMarketData[selectedCompany].scores?.altmanZScore && (
+                    <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#E6E5DE]">
+                      <span className="text-[#9E9C92] text-[10px] block">Altman Z-Score</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="font-bold text-[#1C1B18]">
+                          {report.companyMarketData[selectedCompany].scores.altmanZScore.score}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
+                            report.companyMarketData[selectedCompany].scores.altmanZScore.zone === 'Safe'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {report.companyMarketData[selectedCompany].scores.altmanZScore.zone}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-[#68665E] block truncate">
+                        Piotroski: {report.companyMarketData[selectedCompany].scores.piotroskiFScoreEstimate?.rating || 'Strong'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Executive Summary */}
             <div className="p-4 rounded-xl bg-[#FAF9F5] border border-[#E6E5DE]">

@@ -3,10 +3,16 @@ import { subscribeToAuth, signOut, AuthState } from './lib/auth-service';
 import { PasswordSignIn } from './components/auth/PasswordSignIn';
 import { Navbar, NavigationTab } from './components/common/Navbar';
 import { TrackerPage } from './pages/TrackerPage';
+import { WatchlistPage } from './pages/WatchlistPage';
+import { CopilotPage } from './pages/CopilotPage';
+import { MarketsPage } from './pages/MarketsPage';
 import { OrchestratorPage } from './pages/OrchestratorPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { MasterApiPage } from './pages/MasterApiPage';
+import { CommandPalette } from './components/common/CommandPalette';
+import { OnboardingTourModal } from './components/onboarding/OnboardingTourModal';
+import { OnboardingChecklistWidget } from './components/onboarding/OnboardingChecklistWidget';
 
 import {
   PromptPreset,
@@ -26,9 +32,13 @@ import {
   deleteReportSnapshot,
   loadWorkspaceState,
   saveWorkspaceState,
+  loadOnboardingProgress,
+  saveOnboardingProgress,
+  loadTrackedStocks,
 } from './lib/firestore-service';
 
 import { AIProviderConfig, ProviderQuotaTelemetry, SynthesisReport, UniversalApiKeyEntry } from './types/ai';
+import { OnboardingProgress } from './types/business-os';
 import { runFullPipeline } from './lib/api-client';
 import { Loader2 } from 'lucide-react';
 
@@ -65,6 +75,28 @@ export function App() {
   const [currentReport, setCurrentReport] = useState<SynthesisReport | null>(null);
   const [currentTelemetry, setCurrentTelemetry] = useState<ProviderQuotaTelemetry | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
+
+  // BusinessOS Single-User Features
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isOnboardingTourOpen, setIsOnboardingTourOpen] = useState(false);
+  const [onboardingProgress, setOnboardingProgress] = useState<OnboardingProgress>({
+    hasCompletedTour: false,
+    checklistDismissed: false,
+    completedTasks: [],
+  });
+  const [trackedStocksCount, setTrackedStocksCount] = useState<number>(0);
+
+  // Global Keyboard Shortcut: Cmd+K / Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // 1. Subscribe to Password Auth (Firebase Auth)
   useEffect(() => {
@@ -119,6 +151,18 @@ export function App() {
           setCurrentReport(snaps[0]);
           setCurrentTelemetry(snaps[0].quotaTelemetry);
         }
+      });
+
+      // Load Onboarding & Stock counts
+      loadOnboardingProgress().then((progress) => {
+        setOnboardingProgress(progress);
+        if (!progress.hasCompletedTour) {
+          setIsOnboardingTourOpen(true);
+        }
+      });
+
+      loadTrackedStocks().then((stocks) => {
+        setTrackedStocksCount(stocks.length);
       });
     }
   }, [auth.isAuthenticated]);
@@ -245,10 +289,27 @@ export function App() {
         onSelectTab={setActiveTab}
         telemetry={currentTelemetry}
         onSignOut={() => signOut()}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onOpenTour={() => setIsOnboardingTourOpen(true)}
       />
 
       {/* Main Container for Full-Page Views */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Onboarding Checklist (Single-User Guidance) */}
+        {activeTab === 'tracker' && (
+          <OnboardingChecklistWidget
+            progress={onboardingProgress}
+            onUpdateProgress={async (updated) => {
+              setOnboardingProgress(updated);
+              await saveOnboardingProgress(updated);
+            }}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
+            onOpenTour={() => setIsOnboardingTourOpen(true)}
+            stocksCount={trackedStocksCount}
+            hasRunSynthesis={Boolean(currentReport)}
+          />
+        )}
+
         {activeTab === 'tracker' && (
           <TrackerPage
             companies={companies}
@@ -286,6 +347,18 @@ export function App() {
             currentReport={currentReport}
             onNavigateToOrchestrator={() => setActiveTab('orchestrator')}
           />
+        )}
+
+        {activeTab === 'stocks' && (
+          <WatchlistPage />
+        )}
+
+        {activeTab === 'copilot' && (
+          <CopilotPage />
+        )}
+
+        {activeTab === 'markets' && (
+          <MarketsPage />
         )}
 
         {activeTab === 'orchestrator' && (
@@ -364,6 +437,25 @@ export function App() {
           />
         )}
       </main>
+
+      {/* Command Palette Modal (Ctrl+K or Cmd+K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigate={(tab) => setActiveTab(tab)}
+      />
+
+      {/* Guided Tour Modal */}
+      <OnboardingTourModal
+        isOpen={isOnboardingTourOpen}
+        onClose={() => setIsOnboardingTourOpen(false)}
+        onFinishTour={async () => {
+          const updated = { ...onboardingProgress, hasCompletedTour: true };
+          setOnboardingProgress(updated);
+          await saveOnboardingProgress(updated);
+        }}
+        onNavigateToTab={(tab) => setActiveTab(tab)}
+      />
     </div>
   );
 }

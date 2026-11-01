@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Building2, X, Plus, Bookmark, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Building2, X, Plus, Bookmark, Check, TrendingUp, TrendingDown } from 'lucide-react';
 import { Watchlist } from '../../lib/firestore-service';
+import { fetchBatchQuotes } from '../../lib/api-client';
 
 interface CompanyTaggerProps {
   companies: string[];
@@ -18,6 +19,24 @@ export const CompanyTagger: React.FC<CompanyTaggerProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [watchlistName, setWatchlistName] = useState('');
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, any>>({});
+
+  // Fetch live market pills for tagged companies
+  useEffect(() => {
+    if (companies.length === 0) {
+      setLiveQuotes({});
+      return;
+    }
+
+    let isMounted = true;
+    fetchBatchQuotes(companies)
+      .then(quotes => {
+        if (isMounted) setLiveQuotes(quotes);
+      })
+      .catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [companies]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -111,21 +130,42 @@ export const CompanyTagger: React.FC<CompanyTaggerProps> = ({
 
       {/* Tag Input Box */}
       <div className="min-h-[48px] p-2 bg-[#FAF9F5] border border-[#E6E5DE] focus-within:border-[#1C1B18] focus-within:bg-[#FFFFFF] rounded-xl flex flex-wrap items-center gap-1.5 transition-all">
-        {companies.map((company) => (
-          <span
-            key={company}
-            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#FFFFFF] border border-[#E6E5DE] text-xs font-medium text-[#1C1B18] shadow-sm animate-fadeIn"
-          >
-            <span>{company}</span>
-            <button
-              type="button"
-              onClick={() => removeCompany(company)}
-              className="p-0.5 rounded hover:bg-[#FAF9F5] text-[#9E9C92] hover:text-[#1C1B18] transition"
+        {companies.map((company) => {
+          const q = liveQuotes[company] || liveQuotes[company.toUpperCase()];
+          const hasQuote = q && q.lastPrice !== undefined;
+          const isPositive = hasQuote && (q.percentChange || 0) >= 0;
+
+          return (
+            <span
+              key={company}
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#FFFFFF] border border-[#E6E5DE] text-xs font-medium text-[#1C1B18] shadow-2xs animate-fadeIn"
             >
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
+              <span className="font-semibold">{company}</span>
+
+              {hasQuote && (
+                <span
+                  className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                    isPositive
+                      ? 'bg-emerald-50 text-emerald-800'
+                      : 'bg-rose-50 text-rose-800'
+                  }`}
+                  title={`${q.currency} ${q.lastPrice} (${isPositive ? '+' : ''}${q.percentChange?.toFixed(2)}%)`}
+                >
+                  {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                  <span>{q.currency === 'INR' ? '₹' : '$'}{q.lastPrice}</span>
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => removeCompany(company)}
+                className="p-0.5 rounded hover:bg-[#FAF9F5] text-[#9E9C92] hover:text-[#1C1B18] transition cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          );
+        })}
 
         <input
           type="text"
