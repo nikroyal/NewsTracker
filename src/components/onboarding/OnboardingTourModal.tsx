@@ -10,7 +10,8 @@ import {
   CheckCircle2, 
   X,
   ShieldCheck,
-  Zap
+  Zap,
+  Building2
 } from 'lucide-react';
 
 interface OnboardingTourModalProps {
@@ -57,6 +58,20 @@ export const OnboardingTourModal: React.FC<OnboardingTourModalProps> = ({
       ],
       tabTarget: 'stocks',
       ctaLabel: 'Explore Watchlist',
+    },
+    {
+      title: 'Company Intelligence Hub & SEC EDGAR Filings',
+      subtitle: 'Multi-Year Financial Statements & Official Disclosures',
+      icon: <Building2 className="w-8 h-8 text-indigo-600" />,
+      desc: 'Deep-dive into multi-year Income Statements, Balance Sheets, and Cash Flow tables with direct links to SEC EDGAR 10-K/10-Q archives and SEBI corporate disclosures.',
+      highlights: [
+        'Multi-year revenue, gross profit, operating margin, and free cash flow tables.',
+        'Official accession numbers and direct SEC EDGAR document viewers.',
+        'Insider transactions, 13F institutional ownership, and options sentiment flows.',
+        'Academic models (Operating Leverage, Economic Moats, Solvency) with real company case studies.',
+      ],
+      tabTarget: 'intelligence',
+      ctaLabel: 'Open Intelligence Hub',
     },
     {
       title: 'Interactive AI Financial Copilot',

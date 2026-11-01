@@ -10,7 +10,8 @@ import {
   FileDown, 
   ChevronDown, 
   ChevronUp, 
-  X 
+  X,
+  Building2 
 } from 'lucide-react';
 import { OnboardingProgress } from '../../types/business-os';
 
@@ -45,6 +46,14 @@ export const OnboardingChecklistWidget: React.FC<OnboardingChecklistWidgetProps>
       actionText: 'View Stocks',
       tab: 'stocks',
       icon: <TrendingUp className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'step_intelligence',
+      label: 'Inspect multi-year financial statements & SEC filings',
+      completed: progress.completedTasks.includes('step_intelligence'),
+      actionText: 'Open Intel Hub',
+      tab: 'intelligence',
+      icon: <Building2 className="w-3.5 h-3.5" />,
     },
     {
       id: 'step_master_api',
