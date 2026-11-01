@@ -62,6 +62,25 @@ export const LiveUsageMeter: React.FC<LiveUsageMeterProps> = ({ telemetry, onMan
         </div>
       )}
 
+      {/* Cache Indicator or Cost */}
+      {telemetry.cached ? (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-100 text-emerald-800 border border-emerald-300">
+          <Zap className="w-2.5 h-2.5" /> Edge Cache
+        </span>
+      ) : telemetry.estimatedCostUsd !== undefined && telemetry.estimatedCostUsd > 0 ? (
+        <div className="flex items-center space-x-1 text-xs font-mono text-[#68665E]">
+          <Coins className="w-3 h-3 text-[#9E9C92]" />
+          <span>${telemetry.estimatedCostUsd.toFixed(4)}</span>
+        </div>
+      ) : null}
+
+      {telemetry.costSavedUsd !== undefined && telemetry.costSavedUsd > 0 && (
+        <div className="flex items-center space-x-1 text-xs font-mono text-emerald-700" title="Cost saved via SHA-256 edge response cache">
+          <Coins className="w-3 h-3 text-emerald-600" />
+          <span>Saved ${telemetry.costSavedUsd.toFixed(4)}</span>
+        </div>
+      )}
+
       {/* Latency */}
       <div className="flex items-center space-x-1 text-xs font-mono text-[#68665E]">
         <Clock className="w-3 h-3 text-[#9E9C92]" />

@@ -15,9 +15,12 @@ import { GeminiAdapter } from './adapters/gemini';
 import { OpenRouterAdapter } from './adapters/openrouter';
 import { GenericOpenAICompatibleAdapter } from './adapters/generic-openai';
 import { AnthropicMessagesAdapter } from './adapters/anthropic';
+import { globalSynthesisCache } from './cache-manager';
+import { calculateEstimatedCost } from './cost-model';
 
 export class ModelOrchestrator {
   private adapters: Map<string, IAIProviderAdapter> = new Map();
+  private providerCooldowns: Map<string, number> = new Map();
   private defaultProviders: AIProviderConfig[] = [
     {
       id: 'gemini',
@@ -110,16 +113,53 @@ export class ModelOrchestrator {
       }
     }
 
+    // 1. Dual-Layer Edge Response Cache Check (inspired by BusinessOS SHA-256 cache)
+    const preferredModel = preferred?.defaultModel || 'gemini-2.0-flash';
+    let cacheKey = '';
+    if (!request.bypassCache) {
+      try {
+        cacheKey = await globalSynthesisCache.generateKey(request, preferredModel);
+        const cached = globalSynthesisCache.get(cacheKey);
+        if (cached) {
+          const cost = calculateEstimatedCost(preferredModel, cached.promptTokens, cached.completionTokens);
+          return {
+            report: {
+              ...cached.report,
+              cached: true,
+              costSavedUsd: cost.estimatedCostUsd,
+              executionTimeMs: 1,
+            },
+            telemetry: {
+              ...cached.report.quotaTelemetry,
+              cached: true,
+              costSavedUsd: cost.estimatedCostUsd,
+              latencyMs: 1,
+            },
+          };
+        }
+      } catch {
+        // Proceed with live execution if cache check encounters unexpected issue
+      }
+    }
+
     // If no provider has API keys configured, return a rich mock synthesis
     // so the user can test the UI and PDF generation immediately!
     if (queue.length === 0 || !this.hasAnyApiKey(request)) {
       return this.generateSimulatedReport(request);
     }
 
-    // Execute with failover
+    // 2. Execute with failover and cooldown bypass
     const errors: string[] = [];
 
     for (const providerConfig of queue) {
+      // Check active cooldown state (skip hammered / rate-limited providers immediately)
+      const cooldownUntil = this.providerCooldowns.get(providerConfig.id) || 0;
+      if (Date.now() < cooldownUntil) {
+        const remainingSec = Math.ceil((cooldownUntil - Date.now()) / 1000);
+        errors.push(`[${providerConfig.name}]: Skipping provider (cooling down for ${remainingSec}s due to previous rate limits)`);
+        continue;
+      }
+
       try {
         let adapter = this.adapters.get(providerConfig.id);
         if (!adapter) {
@@ -128,10 +168,31 @@ export class ModelOrchestrator {
         }
 
         const result = await adapter.generateSynthesis(request, providerConfig);
+
+        // 3. Sub-cent Financial Cost Estimation
+        const pTokens = result.telemetry.tokensConsumedLastQuery?.promptTokens || 0;
+        const cTokens = result.telemetry.tokensConsumedLastQuery?.completionTokens || 0;
+        const cost = calculateEstimatedCost(providerConfig.defaultModel, pTokens, cTokens);
+        result.telemetry.estimatedCostUsd = cost.estimatedCostUsd;
+        result.report.quotaTelemetry.estimatedCostUsd = cost.estimatedCostUsd;
+
+        // 4. Populate Edge Response Cache for instant subsequent recall
+        if (cacheKey) {
+          globalSynthesisCache.set(cacheKey, result.report);
+        }
+
         return result;
       } catch (err: any) {
-        errors.push(`[${providerConfig.name}]: ${err.message || String(err)}`);
-        // Continue to next provider in failover queue
+        const errMsg = err.message || String(err);
+        errors.push(`[${providerConfig.name}]: ${errMsg}`);
+
+        // Set cooldown if rate-limited (HTTP 429) or overloaded (HTTP 503)
+        const isRateLimit = errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('quota');
+        const isOverload = errMsg.includes('503') || errMsg.toLowerCase().includes('overloaded');
+        if (isRateLimit || isOverload) {
+          const cooldownDuration = providerConfig.cooldownDurationMs || 120_000;
+          this.providerCooldowns.set(providerConfig.id, Date.now() + cooldownDuration);
+        }
       }
     }
 
@@ -139,6 +200,43 @@ export class ModelOrchestrator {
     const fallback = this.generateSimulatedReport(request);
     fallback.report.globalSummary += ` (Note: Upstream AI providers encountered errors: ${errors.join('; ')})`;
     return fallback;
+  }
+
+  /**
+   * Returns current active cooldowns across all providers
+   */
+  getCooldowns(): Record<string, { inCooldown: boolean; remainingSec: number }> {
+    const result: Record<string, { inCooldown: boolean; remainingSec: number }> = {};
+    const now = Date.now();
+    for (const [providerId, cooldownUntil] of this.providerCooldowns.entries()) {
+      const remainingSec = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+      result[providerId] = {
+        inCooldown: remainingSec > 0,
+        remainingSec,
+      };
+    }
+    return result;
+  }
+
+  /**
+   * Resets all provider cooldowns
+   */
+  clearCooldowns(): void {
+    this.providerCooldowns.clear();
+  }
+
+  /**
+   * Returns edge response cache telemetry metrics
+   */
+  getCacheMetrics(): { size: number; hits: number; misses: number; hitRate: number } {
+    return globalSynthesisCache.getMetrics();
+  }
+
+  /**
+   * Clears the edge response cache
+   */
+  clearCache(): void {
+    globalSynthesisCache.clear();
   }
 
   private hasAnyApiKey(request: SynthesisRequest): boolean {

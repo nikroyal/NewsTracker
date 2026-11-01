@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ModelOrchestrator } from '../functions/api/aggregators/ai/orchestrator';
 import { extractLiveQuotaTelemetry } from '../functions/api/aggregators/ai/usage-tracker';
+import { extractAndParseJson, tryRepairTruncatedJson, detectFormat } from '../functions/api/aggregators/ai/json-sanitizer';
+import { SynthesisCacheManager } from '../functions/api/aggregators/ai/cache-manager';
+import { calculateEstimatedCost } from '../functions/api/aggregators/ai/cost-model';
 import { AIProviderConfig, SynthesisRequest } from '../src/types/ai';
 
 describe('Model Orchestrator & Live Usage Meter', () => {
@@ -148,5 +151,90 @@ describe('Model Orchestrator & Live Usage Meter', () => {
     expect(result.report.companyAnalyses['TSMC']).toBeDefined();
     expect(result.report.ecosystemImpactMatrix.length).toBeGreaterThan(0);
     expect(result.telemetry.remainingTokens).toBeDefined();
+  });
+
+  describe('Merged BusinessOS AI-Ops Capabilities', () => {
+    it('sanitizes markdown-fenced and conversation-wrapped JSON with 100% resilience', () => {
+      const markdownJson = '```json\n{"globalSummary": "Clean summary", "sentiment": 0.8}\n```';
+      const parsed1 = extractAndParseJson(markdownJson);
+      expect(parsed1.globalSummary).toBe('Clean summary');
+      expect(parsed1.sentiment).toBe(0.8);
+
+      const conversational = 'Here is the executive research briefing:\n{"company": "Reliance", "moat": "high"}\nHope this helps!';
+      const parsed2 = extractAndParseJson(conversational);
+      expect(parsed2.company).toBe('Reliance');
+      expect(parsed2.moat).toBe('high');
+
+      const trailingComma = '{"metrics": ["P/E", "DuPont",], "safe": true,}';
+      const parsed3 = extractAndParseJson(trailingComma);
+      expect(parsed3.metrics).toHaveLength(2);
+      expect(parsed3.safe).toBe(true);
+
+      const format = detectFormat(markdownJson);
+      expect(format).toBe('markdown_fenced');
+    });
+
+    it('repairs truncated JSON responses automatically', () => {
+      const truncated = '{"company": "HDFC", "analyses": [{"risk": "liquidity"';
+      const repaired = tryRepairTruncatedJson(truncated);
+      const parsed = JSON.parse(repaired);
+      expect(parsed.company).toBe('HDFC');
+      expect(parsed.analyses[0].risk).toBe('liquidity');
+    });
+
+    it('caches identical synthesis responses using Web Crypto SHA-256 and computes cost savings', async () => {
+      const cache = new SynthesisCacheManager(3600000);
+      const mockRequest: SynthesisRequest = {
+        companies: ['TCS'],
+        userPrompt: 'Synthesize quarterly IT earnings.',
+        partitionedArticles: { TCS: [] },
+      };
+
+      const hash = await cache.generateKey(mockRequest, 'gemini-2.0-flash');
+      expect(hash).toBeDefined();
+      expect(hash.length).toBe(64); // SHA-256 hex length
+
+      expect(cache.get(hash)).toBeNull();
+
+      const mockReport: any = {
+        id: 'rep_cached_test',
+        globalSummary: 'Cached IT summary',
+        quotaTelemetry: {
+          tokensConsumedLastQuery: { promptTokens: 1000, completionTokens: 500, totalTokens: 1500 },
+        },
+      };
+
+      cache.set(hash, mockReport);
+      const retrieved = cache.get(hash);
+      expect(retrieved).not.toBeNull();
+      expect(retrieved?.report.globalSummary).toBe('Cached IT summary');
+
+      const metrics = cache.getMetrics();
+      expect(metrics.size).toBe(1);
+      expect(metrics.hits).toBe(1);
+      expect(metrics.hitRate).toBe(0.5); // 1 hit, 1 miss
+    });
+
+    it('calculates sub-cent financial costs per 1M tokens accurately', () => {
+      const geminiCost = calculateEstimatedCost('gemini-2.0-flash', 100_000, 50_000);
+      // 100k prompt @ $0.10/M = $0.01; 50k comp @ $0.40/M = $0.02 -> total $0.03
+      expect(geminiCost.estimatedCostUsd).toBe(0.03);
+
+      const claudeCost = calculateEstimatedCost('claude-3-5-sonnet-20241022', 10_000, 2_000);
+      // 10k prompt @ $3/M = $0.03; 2k comp @ $15/M = $0.03 -> total $0.06
+      expect(claudeCost.estimatedCostUsd).toBe(0.06);
+    });
+
+    it('tracks provider cooldowns and allows resetting', () => {
+      const orchestrator = new ModelOrchestrator();
+      (orchestrator as any).providerCooldowns.set('groq', Date.now() + 60000);
+
+      const status = orchestrator.getCooldowns();
+      expect(status['groq'].inCooldown).toBe(true);
+      expect(status['groq'].remainingSec).toBeGreaterThan(0);
+
+      orchestrator.clearCooldowns();
+      expect(orchestrator.getCooldowns()['groq']).toBeUndefined();
+    });
   });
 });

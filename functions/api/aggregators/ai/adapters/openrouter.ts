@@ -6,6 +6,7 @@
 import { AIProviderConfig, IAIProviderAdapter, ProviderQuotaTelemetry, SynthesisReport, SynthesisRequest } from '@/types/ai';
 import { assembleSynthesisPrompt } from '../prompt-assembler';
 import { extractLiveQuotaTelemetry, fetchOpenRouterLiveQuota } from '../usage-tracker';
+import { extractAndParseJson } from '../json-sanitizer';
 
 export class OpenRouterAdapter implements IAIProviderAdapter {
   id = 'openrouter';
@@ -67,13 +68,7 @@ export class OpenRouterAdapter implements IAIProviderAdapter {
     telemetry = { ...telemetry, ...liveQuota };
 
     const rawContent = responseBody.choices?.[0]?.message?.content || '{}';
-    let parsedJson: any;
-    try {
-      parsedJson = JSON.parse(rawContent);
-    } catch {
-      const cleaned = rawContent.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').trim();
-      parsedJson = JSON.parse(cleaned);
-    }
+    const parsedJson = extractAndParseJson(rawContent);
 
     const report: SynthesisReport = {
       id: 'rep_' + Date.now().toString(36),

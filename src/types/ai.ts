@@ -75,6 +75,9 @@ export interface ProviderQuotaTelemetry {
   creditBalanceUsd?: number;
   isFreeTier?: boolean;
   lastQueryCostUsd?: number;
+  estimatedCostUsd?: number;
+  costSavedUsd?: number;
+  cached?: boolean;
   latencyMs: number;
   tokensConsumedLastQuery?: {
     promptTokens: number;
@@ -92,6 +95,8 @@ export interface AIProviderConfig {
   defaultModel: string;
   enabled: boolean;
   isCustom?: boolean;
+  cooldownUntil?: number;
+  cooldownDurationMs?: number;
   headerQuotaMapping?: {
     remainingTokens?: string;    // e.g. "x-ratelimit-remaining-tokens"
     remainingRequests?: string;  // e.g. "x-ratelimit-remaining-requests"
@@ -144,6 +149,8 @@ export interface SynthesisReport {
   companyMarketData?: Record<string, any>;
   quotaTelemetry: ProviderQuotaTelemetry;
   executionTimeMs: number;
+  cached?: boolean;
+  costSavedUsd?: number;
 }
 
 export interface SynthesisRequest {
@@ -155,6 +162,7 @@ export interface SynthesisRequest {
   customProviders?: AIProviderConfig[];
   apiKeys?: Record<string, string>;
   stream?: boolean;
+  bypassCache?: boolean;
 }
 
 export interface IAIProviderAdapter {

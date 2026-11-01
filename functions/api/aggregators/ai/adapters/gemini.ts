@@ -5,6 +5,7 @@
 import { AIProviderConfig, IAIProviderAdapter, ProviderQuotaTelemetry, SynthesisReport, SynthesisRequest } from '@/types/ai';
 import { assembleSynthesisPrompt } from '../prompt-assembler';
 import { extractLiveQuotaTelemetry } from '../usage-tracker';
+import { extractAndParseJson } from '../json-sanitizer';
 
 export class GeminiAdapter implements IAIProviderAdapter {
   id = 'gemini';
@@ -65,13 +66,7 @@ export class GeminiAdapter implements IAIProviderAdapter {
     });
 
     const candidateText = responseBody.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    let parsedJson: any;
-    try {
-      parsedJson = JSON.parse(candidateText);
-    } catch {
-      const cleaned = candidateText.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').trim();
-      parsedJson = JSON.parse(cleaned);
-    }
+    const parsedJson = extractAndParseJson(candidateText);
 
     const report: SynthesisReport = {
       id: 'rep_' + Date.now().toString(36),

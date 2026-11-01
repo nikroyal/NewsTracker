@@ -6,6 +6,7 @@
 import { AIProviderConfig, IAIProviderAdapter, ProviderQuotaTelemetry, SynthesisReport, SynthesisRequest } from '@/types/ai';
 import { assembleSynthesisPrompt } from '../prompt-assembler';
 import { extractLiveQuotaTelemetry } from '../usage-tracker';
+import { extractAndParseJson } from '../json-sanitizer';
 
 export class GenericOpenAICompatibleAdapter implements IAIProviderAdapter {
   id: string;
@@ -63,14 +64,7 @@ export class GenericOpenAICompatibleAdapter implements IAIProviderAdapter {
     });
 
     const rawContent = responseBody.choices?.[0]?.message?.content || '{}';
-    let parsedJson: any;
-    try {
-      parsedJson = JSON.parse(rawContent);
-    } catch {
-      // Clean possible markdown code fences
-      const cleaned = rawContent.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').trim();
-      parsedJson = JSON.parse(cleaned);
-    }
+    const parsedJson = extractAndParseJson(rawContent);
 
     const report: SynthesisReport = {
       id: 'rep_' + Date.now().toString(36),
